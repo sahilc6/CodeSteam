@@ -1,0 +1,12 @@
+FROM node:20-alpine
+WORKDIR /app
+
+RUN apk add --no-cache python3 py3-pip gcc g++ make bash go ruby php83
+
+COPY server/package*.json ./
+RUN npm install
+
+COPY server/src ./src
+
+EXPOSE 5000
+CMD ["npx", "nodemon", "src/index.js"]

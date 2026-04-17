@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+client/dist/
+
+# Environment files — NEVER commit these
+.env
+.env.*
+!.env.*.example
+!.env.compose.example
+server/.env
+.env.compose
+.env.compose
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# PM2
+.pm2/
+
+# Docker
+.dockerignore
+
+# Certificates (managed by certbot on server)
+*.pem
+*.key
+*.crt

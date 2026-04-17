@@ -1,0 +1,126 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CodeSteam — production Docker Compose
+#  Usage:
+#    cp .env.compose.example .env.compose
+#    docker-compose --env-file .env.compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── MongoDB ────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: codesteam-mongo
+    restart: unless-stopped
+    expose:
+      - "27017"           # NOT published to host — only internal network
+    volumes:
+      - mongo_data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD is required}
+      MONGO_INITDB_DATABASE: codesteam
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+
+  # ── Node.js server ─────────────────────────────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_WS_URL:  ${VITE_WS_URL:-}
+    image: codesteam-server:latest
+    container_name: codesteam-server
+    restart: unless-stopped
+    expose:
+      - "5000"            # NOT published — Nginx proxies to it
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      NODE_ENV:          production
+      PORT:              5000
+      MONGODB_URI:       mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD}@mongo:27017/codesteam?authSource=admin
+      JWT_SECRET:        ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN:    ${JWT_EXPIRES_IN:-7d}
+      CORS_ORIGINS:      ${CORS_ORIGINS:-http://localhost}
+      SANDBOX_TIMEOUT_MS: ${SANDBOX_TIMEOUT_MS:-10000}
+    volumes:
+      - server_logs:/app/logs
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
+  # ── Nginx (reverse proxy + static files) ───────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: codesteam-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - ./nginx/codesteam.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx_cache:/var/cache/nginx
+      # SSL certificates (mount after certbot setup)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Static files from server build
+      - server_static:/var/www/codesteam:ro
+    networks:
+      - internal
+      - external
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Static file init (copies built assets to named volume) ─────────
+  static-init:
+    image: codesteam-server:latest
+    container_name: codesteam-static-init
+    command: sh -c "cp -r /app/public/. /static/ && echo 'Static files copied'"
+    volumes:
+      - server_static:/static
+    networks:
+      - internal
+    depends_on:
+      - server
+    restart: "no"
+
+volumes:
+  mongo_data:
+    driver: local
+  server_logs:
+    driver: local
+  nginx_cache:
+    driver: local
+  server_static:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge
+    internal: true          # No direct internet access for internal services
+  external:
+    driver: bridge          # Nginx only — faces the internet
