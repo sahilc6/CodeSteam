@@ -292,7 +292,7 @@ export default function RoomPage() {
         onToggleChat={() => setShowChat(v => !v)}
       />
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
         <CollabEditor
           ref={editorRef}
           socket={socketRef.current}
