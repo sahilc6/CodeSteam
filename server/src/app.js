@@ -16,11 +16,27 @@ const app = express()
 app.use(helmet({ contentSecurityPolicy: false }))
 
 // CORS
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',')
+// CORS
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean)
+
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
-    cb(new Error('Not allowed by CORS'))
+    // Allow requests with no origin (Postman, curl, health checks, some browser requests)
+    if (!origin) return cb(null, true)
+
+    const normalizedOrigin = origin.trim().replace(/\/$/, '')
+
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      return cb(null, true)
+    }
+
+    logger.error(`Blocked by CORS: ${normalizedOrigin}`)
+    logger.error(`Allowed origins: ${allowedOrigins.join(', ')}`)
+
+    return cb(new Error('Not allowed by CORS'))
   },
   credentials: true,
 }))
