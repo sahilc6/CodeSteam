@@ -5,8 +5,9 @@ import toast from 'react-hot-toast'
 import { Code2, Plus, LogIn, Users, Globe, ChevronRight, Zap, ChevronDown, History, LogOut, Calendar, Users as UsersIcon, Code } from 'lucide-react'
 import AuthModal from './AuthModal'
 import useAuthStore from '../../context/authStore'
+import { getApiBaseUrl } from '../../utils/runtimeConfig'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = getApiBaseUrl()
 
 const LANGUAGES = [
   'javascript','typescript','python','java','cpp',

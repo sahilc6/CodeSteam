@@ -9,9 +9,10 @@ import UserList from './UserList'
 import OutputPanel from './OutputPanel'
 import ChatPanel from './ChatPanel'
 import { CODE_SKELETONS } from '../../utils/codeSkeletons'
+import { getApiBaseUrl, getWsBaseUrl } from '../../utils/runtimeConfig'
 
-const API = import.meta.env.VITE_API_URL || ''
-const WS  = import.meta.env.VITE_WS_URL  || ''
+const API = getApiBaseUrl()
+const WS  = getWsBaseUrl()
 
 export default function RoomPage() {
   const { roomId } = useParams()
@@ -153,6 +154,26 @@ export default function RoomPage() {
 
     return () => socket.disconnect()
   }, [roomId, navigate])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function verifyRoom() {
+      try {
+        await axios.get(`${API}/api/rooms/${roomId}`)
+      } catch (err) {
+        if (cancelled) return
+        setStatus('error')
+        toast.error(err.response?.data?.error || 'Room not found')
+      }
+    }
+
+    verifyRoom()
+
+    return () => {
+      cancelled = true
+    }
+  }, [roomId])
 
   // ── Apply language change ─────────────────────────────────────────
   const applyLanguageChange = (lang) => {

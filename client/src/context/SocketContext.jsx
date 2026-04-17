@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
+import { getWsBaseUrl } from '../utils/runtimeConfig'
 
 const SocketContext = createContext(null)
 
@@ -11,7 +12,7 @@ export function SocketProvider({ children }) {
     const token = localStorage.getItem('token')
     const username = localStorage.getItem('username') || `Guest_${Math.random().toString(36).slice(2, 6)}`
 
-    socketRef.current = io(import.meta.env.VITE_WS_URL || '', {
+    socketRef.current = io(getWsBaseUrl(), {
       auth: { token, username },
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,

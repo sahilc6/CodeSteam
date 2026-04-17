@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import axios from 'axios'
+import { getApiBaseUrl } from '../utils/runtimeConfig'
 
-const API = import.meta.env.VITE_API_URL || ''
+const API = getApiBaseUrl()
 
 // Axios instance with auth header auto-inject
 const api = axios.create({ baseURL: API })
