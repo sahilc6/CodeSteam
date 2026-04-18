@@ -1,6 +1,6 @@
 # CodeSteam
 
-Real-time collaborative code editor — Node.js · React · Socket.io · MongoDB ·
+Real-time collaborative code editor — Node.js · React · Socket.io · MongoDB 
 
 ---
 
