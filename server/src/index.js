@@ -10,7 +10,8 @@ async function start() {
   await connectDB()
 
   const server = http.createServer(app)
-  initSocket(server)
+  const io = initSocket(server)
+  app.set('io', io)
 
   server.listen(PORT, () => {
     logger.info(`CodeSteam server running on port ${PORT} [${process.env.NODE_ENV}]`)

@@ -1,3 +1,4 @@
+// client/src/hooks/useOT.js
 import { useRef, useCallback } from 'react'
 
 /**
@@ -17,24 +18,20 @@ export function useOT(socket, roomId) {
   const state = useRef({
     revision: 0,
     pending: null,   // op in-flight to server, awaiting ack
-    buffer:  null,   // op composed locally while pending is in-flight
+    buffer:  [],     // ops queued locally while pending is in-flight
   })
 
   // ── Send local op ─────────────────────────────────────────────────
   const sendOp = useCallback((op) => {
     const s = state.current
-    op.revision = s.revision
 
     if (!s.pending) {
       // SYNC → send immediately
-      s.pending = { ...op }
+      s.pending = { ...op, revision: s.revision }
       socket?.emit('op', { op: s.pending, roomId })
-    } else if (!s.buffer) {
-      // AWAITING → buffer
-      s.buffer = { ...op }
     } else {
-      // BUFFERED → compose into buffer
-      s.buffer = composeOps(s.buffer, op)
+      // AWAITING → buffer the op until pending is acked
+      s.buffer.push({ ...op })
     }
   }, [socket, roomId])
 
@@ -43,10 +40,10 @@ export function useOT(socket, roomId) {
     const s = state.current
     s.revision = serverRevision
 
-    if (s.buffer) {
-      // Flush buffer: it becomes the new pending
-      s.pending = { ...s.buffer, revision: s.revision }
-      s.buffer = null
+    if (s.buffer.length > 0) {
+      // Flush next buffered op: it becomes the new pending
+      const nextOp = s.buffer.shift()
+      s.pending = { ...nextOp, revision: s.revision }
       socket?.emit('op', { op: s.pending, roomId })
     } else {
       s.pending = null
@@ -61,14 +58,23 @@ export function useOT(socket, roomId) {
     if (s.pending) {
       const [tIncoming, tPending] = xform(incoming, s.pending)
       incoming   = tIncoming
-      s.pending  = tPending
+      if (tPending) {
+        s.pending = tPending
+      } else {
+        s.pending = null
+      }
     }
 
-    if (s.buffer) {
-      const [tIncoming, tBuffer] = xform(incoming, s.buffer)
-      incoming  = tIncoming
-      s.buffer  = tBuffer
+    const newBuffer = []
+    for (const bOp of s.buffer) {
+      const [tIncoming, tBufferOp] = xform(incoming, bOp)
+      // incoming is transformed against bOp, because bOp precedes future ops
+      incoming = tIncoming
+      if (tBufferOp) {
+        newBuffer.push(tBufferOp)
+      }
     }
+    s.buffer = newBuffer
 
     s.revision = remoteOp.revision
     return incoming
@@ -77,7 +83,7 @@ export function useOT(socket, roomId) {
   const setRevision = useCallback((rev) => {
     state.current.revision = rev
     state.current.pending  = null
-    state.current.buffer   = null
+    state.current.buffer   = []
   }, [])
 
   return { sendOp, handleAck, handleRemoteOp, setRevision }
@@ -164,23 +170,4 @@ function xform(a, b) {
   }
 
   return [a, b]
-}
-
-// Compose two sequential ops from the same client into one.
-// For the simple case (used only for buffered ops), the later op wins.
-function composeOps(op1, op2) {
-  // If both are inserts at adjacent positions, merge text
-  if (op1.type === 'insert' && op2.type === 'insert') {
-    if (op2.position === op1.position + op1.text.length) {
-      return { ...op1, text: op1.text + op2.text }
-    }
-  }
-  // If both are deletes at same start, merge lengths
-  if (op1.type === 'delete' && op2.type === 'delete') {
-    if (op2.position === op1.position) {
-      return { ...op1, length: op1.length + op2.length }
-    }
-  }
-  // Otherwise keep the later op (covers the common backspace case)
-  return op2
 }

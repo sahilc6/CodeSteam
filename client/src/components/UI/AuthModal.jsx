@@ -1,3 +1,4 @@
+// client/src/components/UI/AuthModal.jsx
 import { useState } from 'react'
 import { X, LogIn, UserPlus, Loader2 } from 'lucide-react'
 import useAuthStore from '../../context/authStore'

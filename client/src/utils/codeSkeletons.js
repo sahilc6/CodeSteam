@@ -1,3 +1,4 @@
+// client/src/utils/codeSkeletons.js
 export const CODE_SKELETONS = {
   javascript: `// JavaScript Example
 console.log("Hello, World!");

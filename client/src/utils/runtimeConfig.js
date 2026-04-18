@@ -1,51 +1,52 @@
-const DEV_API_URL = 'http://localhost:5000'
+// client/src/utils/runtimeConfig.js
+const DEV_API_URL = "http://localhost:5000";
 
-function trimTrailingSlash(value = '') {
-  return value.replace(/\/+$/, '')
+function trimTrailingSlash(value = "") {
+  return value.replace(/\/+$/, "");
 }
 
 function isLocalhostHost(hostname) {
-  return hostname === 'localhost' || hostname === '127.0.0.1'
+  return hostname === "localhost" || hostname === "127.0.0.1";
 }
 
 function getOrigin() {
-  if (typeof window === 'undefined') return ''
-  return trimTrailingSlash(window.location.origin)
+  if (typeof window === "undefined") return "";
+  return trimTrailingSlash(window.location.origin);
 }
 
 function getConfiguredUrl(value) {
-  if (!value) return ''
+  if (!value) return "";
 
-  const normalized = trimTrailingSlash(value)
+  const normalized = trimTrailingSlash(value);
 
-  if (typeof window === 'undefined') return normalized
+  if (typeof window === "undefined") return normalized;
 
-  const currentHost = window.location.hostname
+  const currentHost = window.location.hostname;
 
   try {
-    const parsed = new URL(normalized)
+    const parsed = new URL(normalized);
     if (!isLocalhostHost(currentHost) && isLocalhostHost(parsed.hostname)) {
-      return ''
+      return "";
     }
   } catch {
-    return normalized
+    return normalized;
   }
 
-  return normalized
+  return normalized;
 }
 
 export function getApiBaseUrl() {
-  const configured = getConfiguredUrl(import.meta.env.VITE_API_URL)
-  if (configured) return configured
+  const configured = getConfiguredUrl(import.meta.env.VITE_API_URL);
+  if (configured) return configured;
 
-  if (import.meta.env.DEV) return DEV_API_URL
+  if (import.meta.env.DEV) return DEV_API_URL;
 
-  return getOrigin()
+  return getOrigin();
 }
 
 export function getWsBaseUrl() {
-  const configured = getConfiguredUrl(import.meta.env.VITE_WS_URL)
-  if (configured) return configured
+  const configured = getConfiguredUrl(import.meta.env.VITE_WS_URL);
+  if (configured) return configured;
 
-  return getApiBaseUrl()
+  return getApiBaseUrl();
 }

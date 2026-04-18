@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-import { Code2, Plus, LogIn, Users, Globe, ChevronRight, Zap, ChevronDown, History, LogOut, Calendar, Users as UsersIcon, Code } from 'lucide-react'
+import { Code2, Plus, LogIn, Users, Globe, ChevronRight, Zap, ChevronDown, History, LogOut, Users as UsersIcon, Code } from 'lucide-react'
 import AuthModal from './AuthModal'
 import useAuthStore from '../../context/authStore'
 import { getApiBaseUrl } from '../../utils/runtimeConfig'
@@ -21,38 +21,42 @@ const LANG_COLORS = {
 }
 
 export default function HomePage() {
-  const navigate  = useNavigate()
+  const navigate = useNavigate()
   const { user, logout } = useAuthStore()
 
-  const [rooms,    setRooms]    = useState([])
-  const [name,     setName]     = useState('')
+  const [name, setName] = useState('')
   const [language, setLanguage] = useState('javascript')
-  const [joinId,   setJoinId]   = useState('')
+  const [joinId, setJoinId] = useState('')
   const [creating, setCreating] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
-  const [loadingRooms, setLoadingRooms] = useState(true)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [myRooms, setMyRooms] = useState([])
   const [selectedRoom, setSelectedRoom] = useState(null)
+  const liveRooms = myRooms.filter(room => !room.isEnded)
 
-  useEffect(() => {
-    axios.get(`${API}/api/rooms`)
-      .then(r => setRooms(r.data))
-      .catch(() => {})
-      .finally(() => setLoadingRooms(false))
-  }, [])
-
-  useEffect(() => {
+  const loadMyRooms = useCallback(() => {
     if (user) {
       const token = localStorage.getItem('token')
-      axios.get(`${API}/api/rooms/my`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => setMyRooms(r.data))
+      return axios.get(`${API}/api/rooms/my`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => {
+          setMyRooms(r.data)
+          setSelectedRoom(current => {
+            if (!current) return current
+            return r.data.find(room => room.roomId === current.roomId) || null
+          })
+        })
         .catch(() => {})
     } else {
       setMyRooms([])
+      setSelectedRoom(null)
     }
+    return Promise.resolve()
   }, [user])
+
+  useEffect(() => {
+    loadMyRooms()
+  }, [loadMyRooms])
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -68,12 +72,19 @@ export default function HomePage() {
 
   async function createRoom(e) {
     e.preventDefault()
+    if (!user) {
+      setShowAuth(true)
+      return
+    }
     if (!name.trim()) return
     setCreating(true)
     try {
       const token = localStorage.getItem('token')
-      const headers = token ? { Authorization: `Bearer ${token}` } : {}
-      const { data } = await axios.post(`${API}/api/rooms`, { name: name.trim(), language }, { headers })
+      const { data } = await axios.post(
+        `${API}/api/rooms`,
+        { name: name.trim(), language },
+        { headers: { Authorization: `Bearer ${token}` } },
+      )
       navigate(`/room/${data.roomId}`)
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create room')
@@ -83,6 +94,10 @@ export default function HomePage() {
 
   function joinRoom(e) {
     e.preventDefault()
+    if (!user) {
+      setShowAuth(true)
+      return
+    }
     const id = joinId.trim().split('/').pop()
     if (!id) return
     navigate(`/room/${id}`)
@@ -90,8 +105,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-editor-bg flex flex-col">
-
-      {/* Nav */}
       <nav className="relative flex items-center justify-between px-6 py-4 border-b border-editor-border">
         <div className="flex items-center gap-2">
           <Code2 size={22} className="text-editor-accent" />
@@ -111,18 +124,22 @@ export default function HomePage() {
               {dropdownOpen && (
                 <div className="absolute right-0 top-full mt-1 w-48 bg-editor-sidebar border border-editor-border rounded shadow-lg z-50">
                   <button
-  onClick={(e) => {
-    e.stopPropagation()   // 🔥 FIX
-    setDropdownOpen(false)
-    setHistoryOpen(prev => !prev)
-    setSelectedRoom(null)
-  }}
-  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-editor-text hover:bg-editor-border transition-colors"
-  type="button"
->
-  <History size={14} />
-  History
-</button>
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDropdownOpen(false)
+                      setHistoryOpen(prev => {
+                        const next = !prev
+                        if (next) loadMyRooms()
+                        return next
+                      })
+                      setSelectedRoom(null)
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-editor-text hover:bg-editor-border transition-colors"
+                    type="button"
+                  >
+                    <History size={14} />
+                    History
+                  </button>
                   <div className="border-t border-editor-border" />
                   <button
                     onClick={() => {
@@ -139,15 +156,17 @@ export default function HomePage() {
               )}
             </>
           ) : (
-            <button onClick={() => setShowAuth(true)} className="flex items-center gap-1 text-xs text-editor-muted hover:text-editor-text transition-colors"
-                type="button">
+            <button
+              onClick={() => setShowAuth(true)}
+              className="flex items-center gap-1 text-xs text-editor-muted hover:text-editor-text transition-colors"
+              type="button"
+            >
               Sign in
             </button>
           )}
         </div>
       </nav>
 
-      {/* History Panel */}
       {historyOpen && (
         <div className="absolute top-16 right-6 w-80 bg-editor-sidebar border border-editor-border rounded shadow-lg z-40 max-h-96 overflow-y-auto dropdown">
           <div className="p-3 border-b border-editor-border">
@@ -163,7 +182,7 @@ export default function HomePage() {
                   onClick={() => setSelectedRoom(selectedRoom?.roomId === room.roomId ? null : room)}
                   className="w-full p-3 text-left hover:bg-editor-border transition-colors"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className={`text-sm ${room.isEnded ? 'text-editor-muted line-through' : 'text-editor-text'} truncate`}>{room.name}</span>
                     <ChevronRight size={14} className={`text-editor-muted transition-transform ${selectedRoom?.roomId === room.roomId ? 'rotate-90' : ''}`} />
                   </div>
@@ -172,6 +191,9 @@ export default function HomePage() {
                     <span className="text-xs text-editor-muted capitalize">{room.language}</span>
                     <UsersIcon size={12} className="text-editor-muted ml-2" />
                     <span className="text-xs text-editor-muted">{room.userCount}</span>
+                    {(room.pendingRequests?.length || 0) > 0 && (
+                    <span className="text-xs text-editor-accent ml-auto">{room.pendingRequests.length} request</span>
+                    )}
                   </div>
                 </button>
               ))}
@@ -179,22 +201,27 @@ export default function HomePage() {
           )}
           {selectedRoom && (
             <div className="p-3 border-t border-editor-border bg-editor-bg">
-              <h4 className="text-sm font-medium text-editor-text mb-2">Activity</h4>
-              <div className="max-h-40 overflow-y-auto space-y-1">
-                {(selectedRoom.activity || []).map((act, idx) => (
-                  <div key={idx} className="text-xs text-editor-muted flex items-center gap-2">
-                    <span className="text-editor-accent">•</span>
-                    <span>{act.message}</span>
-                    <span className="ml-auto text-editor-muted">
-                      {new Date(act.timestamp).toLocaleString()}
-                    </span>
+              {selectedRoom.role === 'creator' && (
+                <>
+                  <h4 className="text-sm font-medium text-editor-text mb-2">Activity</h4>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {(selectedRoom.activity || []).length === 0 ? (
+                      <div className="text-xs text-editor-muted">No activity yet</div>
+                    ) : (
+                      (selectedRoom.activity || []).map((act, idx) => (
+                        <div key={idx} className="text-xs text-editor-muted flex items-center gap-2">
+                          <span className="text-editor-accent">.</span>
+                          <span className="truncate">{act.message}</span>
+                        </div>
+                      ))
+                    )}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
               {!selectedRoom.isEnded && (
                 <button
                   onClick={() => navigate(`/room/${selectedRoom.roomId}`)}
-                  className="mt-2 w-full btn-primary text-xs"
+                  className={`${selectedRoom.role === 'creator' ? 'mt-2' : ''} w-full btn-primary text-xs`}
                 >
                   Join Room
                 </button>
@@ -204,11 +231,10 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Hero */}
       <div className="flex flex-col items-center text-center px-6 py-14">
         <div className="inline-flex items-center gap-2 bg-editor-sidebar border border-editor-border rounded-full px-3 py-1 text-xs text-editor-muted mb-6">
           <Zap size={11} className="text-editor-accent" />
-          Real-time · OT sync · 10+ languages
+          Real-time . OT sync . 10+ languages
         </div>
         <h1 className="text-4xl font-bold text-editor-text mb-3 tracking-tight">
           Code together,<br />
@@ -219,10 +245,7 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* Cards */}
       <div className="flex flex-col sm:flex-row gap-4 px-6 max-w-2xl mx-auto w-full mb-10">
-
-        {/* Create */}
         <div className="card flex-1">
           <div className="flex items-center gap-2 mb-4">
             <Plus size={15} className="text-editor-accent" />
@@ -245,21 +268,17 @@ export default function HomePage() {
               >
                 {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
-              <input className="absolute left-0 top-0 opacity-0 w-0" tabIndex={-1} />
-              {/* push text past dot */}
-              <style>{`.lang-sel { padding-left: 1.75rem; }`}</style>
             </div>
             <button
               type="submit"
               disabled={creating}
               className="btn-primary w-full flex items-center justify-center gap-1.5"
             >
-              {creating ? 'Creating…' : <><Plus size={13} /> Create Room</>}
+              {creating ? 'Creating...' : <><Plus size={13} /> Create Room</>}
             </button>
           </form>
         </div>
 
-        {/* Join */}
         <div className="card flex-1">
           <div className="flex items-center gap-2 mb-4">
             <LogIn size={15} className="text-editor-accent" />
@@ -273,7 +292,9 @@ export default function HomePage() {
               onChange={e => setJoinId(e.target.value)}
               required
             />
-            <div className="h-[38px]" />{/* spacer to match create card height */}
+            <p className="h-[38px] text-xs text-editor-muted leading-5">
+              You can request access after entering the room ID.
+            </p>
             <button type="submit" className="btn-primary w-full flex items-center justify-center gap-1.5">
               <ChevronRight size={13} /> Join
             </button>
@@ -281,7 +302,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Public rooms */}
       <div className="px-6 max-w-2xl mx-auto w-full pb-12">
         <div className="flex items-center gap-2 mb-3">
           <Globe size={13} className="text-editor-muted" />
@@ -290,16 +310,12 @@ export default function HomePage() {
           </h2>
         </div>
 
-        {loadingRooms && (
-          <p className="text-editor-muted text-xs">Loading…</p>
-        )}
-
-        {!loadingRooms && rooms.length === 0 && (
+        {liveRooms.length === 0 && (
           <p className="text-editor-muted text-xs">No active rooms yet. Create one!</p>
         )}
 
         <div className="space-y-1.5">
-          {rooms.map(room => (
+          {liveRooms.map(room => (
             <button
               key={room.roomId}
               onClick={() => navigate(`/room/${room.roomId}`)}

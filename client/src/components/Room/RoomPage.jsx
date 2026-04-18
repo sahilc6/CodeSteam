@@ -1,296 +1,494 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { io } from 'socket.io-client'
-import toast from 'react-hot-toast'
-import axios from 'axios'
-import CollabEditor from '../Editor/CollabEditor'
-import Toolbar from './Toolbar'
-import UserList from './UserList'
-import OutputPanel from './OutputPanel'
-import ChatPanel from './ChatPanel'
-import { CODE_SKELETONS } from '../../utils/codeSkeletons'
-import { getApiBaseUrl, getWsBaseUrl } from '../../utils/runtimeConfig'
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { io } from "socket.io-client";
+import toast from "react-hot-toast";
+import axios from "axios";
+import CollabEditor from "../Editor/CollabEditor";
+import Toolbar from "./Toolbar";
+import UserList from "./UserList";
+import OutputPanel from "./OutputPanel";
+import ChatPanel from "./ChatPanel";
+import { CODE_SKELETONS } from "../../utils/codeSkeletons";
+import { getApiBaseUrl, getWsBaseUrl } from "../../utils/runtimeConfig";
 
-const API = getApiBaseUrl()
-const WS  = getWsBaseUrl()
+const API = getApiBaseUrl();
+const WS = getWsBaseUrl();
+
+function authHeaders() {
+  const token = localStorage.getItem("token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export default function RoomPage() {
-  const { roomId } = useParams()
-  const navigate   = useNavigate()
+  const { roomId } = useParams();
+  const navigate = useNavigate();
 
-  const socketRef   = useRef(null)
-  const codeRef     = useRef('')
-  const usernameRef = useRef('')
-  const editorRef   = useRef(null)
-
-  const isSkeletonRef = useRef(true)
-
-  // ✅ per-language memory
+  const socketRef = useRef(null);
+  const codeRef = useRef("");
+  const usernameRef = useRef("");
+  const editorRef = useRef(null);
+  const isSkeletonRef = useRef(true);
+  const languageRef = useRef("javascript");
   const codeMapRef = useRef({
-    javascript: '',
-    java: '',
-    python: ''
-  })
+    javascript: "",
+    java: "",
+    python: "",
+  });
 
-  // ✅ modal state
-  const [pendingLanguage, setPendingLanguage] = useState(null)
-  const [showLangConfirm, setShowLangConfirm] = useState(false)
+  const [status, setStatus] = useState("checking");
+  const [access, setAccess] = useState(null);
+  const [roomName, setRoomName] = useState("");
+  const [users, setUsers] = useState([]);
+  const [role, setRole] = useState(null);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [allowedUsers, setAllowedUsers] = useState([]);
+  const [language, setLanguage] = useState("javascript");
+  const [initialContent, setInitialContent] = useState("");
+  const [initialRevision, setInitialRevision] = useState(0);
+  const [showOutput, setShowOutput] = useState(false);
+  const [output, setOutput] = useState(null);
+  const [executing, setExecuting] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const [pendingLanguage, setPendingLanguage] = useState(null);
+  const [showLangConfirm, setShowLangConfirm] = useState(false);
 
-  const [status, setStatus] = useState('connecting')
-  const [users, setUsers] = useState([])
-  const [language, setLanguage] = useState('javascript')
-  const [initialContent, setInitialContent] = useState('')
-  const [initialRevision, setInitialRevision] = useState(0)
-  const [showOutput, setShowOutput] = useState(false)
-  const [output, setOutput] = useState(null)
-  const [executing, setExecuting] = useState(false)
-  const [ending, setEnding] = useState(false)
-  const [showChat, setShowChat] = useState(false)
-
-  // ── Socket lifecycle ─────────────────────────────────────────────
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    const username = localStorage.getItem('username')
-      || `Guest_${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+    languageRef.current = language;
+  }, [language]);
 
-    usernameRef.current = username
+  const fetchRoomAccess = useCallback(async () => {
+    try {
+      const { data } = await axios.get(`${API}/api/rooms/${roomId}`, {
+        headers: authHeaders(),
+      });
+      setRoomName(data.name || "");
+      setRole(data.role);
+      setPendingRequests(data.pendingRequests || []);
+      setAllowedUsers(data.allowedUsers || []);
+      setAccess({ allowed: true });
+      setStatus((current) => (current === "live" ? "live" : "connecting"));
+    } catch (err) {
+      const data = err.response?.data || {};
+      setRoomName(data.name || "");
+      setAccess({ allowed: false, status: data.accessStatus });
+      if (data.accessStatus === "request-needed") setStatus("request");
+      else if (data.accessStatus === "pending") setStatus("pending");
+      else if (data.accessStatus === "ended") {
+        toast.success("Room ended");
+        navigate("/");
+      }
+      else if (data.accessStatus === "login-required") setStatus("login");
+      else setStatus("error");
+    }
+  }, [roomId]);
+
+  useEffect(() => {
+    fetchRoomAccess();
+  }, [fetchRoomAccess]);
+
+  useEffect(() => {
+    if (status !== "pending") return undefined;
+    const timer = setInterval(fetchRoomAccess, 3000);
+    return () => clearInterval(timer);
+  }, [fetchRoomAccess, status]);
+
+  useEffect(() => {
+    if (!access?.allowed) return undefined;
+
+    const token = localStorage.getItem("token");
+    const username = localStorage.getItem("username");
+
+    usernameRef.current = username || "";
 
     const socket = io(WS, {
       auth: { token, username },
-      transports: ['websocket', 'polling'],
+      transports: ["websocket", "polling"],
       reconnectionAttempts: 6,
       reconnectionDelay: 1500,
-    })
+    });
 
-    socketRef.current = socket
+    socketRef.current = socket;
 
-    socket.on('connect', () => {
-      socket.emit('join-room', { roomId })
-    })
+    socket.on("connect", () => {
+      socket.emit("join-room", { roomId });
+    });
 
-    socket.on('room-state', ({ content, revision, language: lang, users: roomUsers }) => {
-      const skeleton = CODE_SKELETONS[lang] || ''
-      const contentToSet = content || skeleton
+    socket.on(
+      "room-state",
+      ({
+        content,
+        revision,
+        language: lang,
+        users: roomUsers,
+        role: roomRole,
+        pendingRequests: requests,
+        allowedUsers: members,
+      }) => {
+        const contentToSet = content || CODE_SKELETONS[lang] || "";
 
-      codeRef.current = contentToSet
-      codeMapRef.current[lang] = contentToSet
+        codeRef.current = contentToSet;
+        codeMapRef.current[lang] = contentToSet;
 
-      setInitialContent(contentToSet)
-      setInitialRevision(revision)
-      setLanguage(lang)
-      setUsers(roomUsers || [])
+        setInitialContent(contentToSet);
+        setInitialRevision(revision || 0);
+        setLanguage(lang);
+        setUsers(roomUsers || []);
+        setRole(roomRole);
+        setPendingRequests(requests || []);
+        setAllowedUsers(members || []);
 
-      isSkeletonRef.current = contentToSet.includes('__SKELETON__')
+        isSkeletonRef.current = false;
 
-      setStatus('live')
-    })
+        setTimeout(() => {
+          editorRef.current?.setContent(contentToSet);
+        }, 50);
 
-    socket.on('user-joined', (user) => {
-      setUsers(prev => {
-        if (prev.find(u => u.socketId === user.socketId)) return prev
-        return [...prev, user]
-      })
-      toast(`${user.username} joined`, { icon: '👋' })
-    })
+        setStatus("live");
+      },
+    );
 
-    socket.on('user-left', ({ socketId, username: name }) => {
-      setUsers(prev => prev.filter(u => u.socketId !== socketId))
-      if (name) toast(`${name} left`, { icon: '🚪' })
-    })
+    socket.on("join-request-created", (request) => {
+      setPendingRequests((prev) => {
+        if (prev.some((item) => item.userId === request.userId)) return prev;
+        return [...prev, request];
+      });
+      toast(`${request.username} requested access`);
+    });
 
-    socket.on('language-change', ({ language: lang, changedBy }) => {
-      const newCode =
-        codeMapRef.current[lang] ||
-        CODE_SKELETONS[lang] ||
-        ''
+    socket.on("joiner-removed", ({ userId }) => {
+      setAllowedUsers((prev) => prev.filter((member) => member.userId !== userId));
+      setUsers((prev) => prev.filter((user) => user.userId !== userId));
+    });
 
-      setLanguage(lang)
-      setInitialContent(newCode)
-      codeRef.current = newCode
+    socket.on("room-access-removed", ({ message }) => {
+      toast.error(message || "Access removed");
+      setAccess({ allowed: false, status: "request-needed" });
+      setStatus("request");
+      socket.disconnect();
+    });
 
-      isSkeletonRef.current = newCode.includes('__SKELETON__')
+    socket.on("user-joined", (user) => {
+      setUsers((prev) => {
+        if (prev.find((u) => u.socketId === user.socketId)) return prev;
+        return [...prev, user];
+      });
+      toast(`${user.username} joined`);
+    });
+
+    socket.on("user-left", ({ socketId, username: name }) => {
+      setUsers((prev) => prev.filter((u) => u.socketId !== socketId));
+      if (name) toast(`${name} left`);
+    });
+
+    socket.on("language-change", ({ language: lang, content, revision, changedBy }) => {
+      const newCode = content || CODE_SKELETONS[lang] || "";
+
+      codeRef.current = newCode;
+      codeMapRef.current[lang] = newCode;
+
+      setLanguage(lang);
+      setInitialContent(newCode);
+      setInitialRevision(revision || 0);
+
+      isSkeletonRef.current = false;
 
       setTimeout(() => {
-        editorRef.current?.setContent(newCode)
-      }, 100)
+        editorRef.current?.setContent(newCode);
+      }, 50);
 
-      toast(`${changedBy} → ${lang}`, { icon: '🔤' })
-    })
+      toast(`${changedBy} -> ${lang}`);
+    });
 
-    socket.on('room-ended', ({ message }) => {
-      toast.success(message || 'Room ended')
-      setEnding(false)
-      setTimeout(() => navigate('/'), 1000)
-    })
+    socket.on("room-ended", ({ message }) => {
+      toast.success(message || "Room ended");
+      setEnding(false);
+      setTimeout(() => navigate("/"), 800);
+    });
 
-    socket.on('room-error', ({ message }) => {
-      toast.error(message)
-      setEnding(false)
-    })
+    socket.on("room-error", ({ message }) => {
+      toast.error(message);
+      setEnding(false);
+    });
 
-    socket.on('error', ({ message }) => {
-      toast.error(message)
-      setStatus('error')
-      setTimeout(() => navigate('/'), 2000)
-    })
+    socket.on("error", ({ message }) => {
+      toast.error(message);
+      fetchRoomAccess();
+    });
 
-    socket.on('connect_error', (err) => {
-      setStatus('error')
-      toast.error(`Connection error: ${err.message}`)
-    })
+    socket.on("connect_error", (err) => {
+      setStatus("error");
+      toast.error(`Connection error: ${err.message}`);
+    });
 
-    socket.on('disconnect', (reason) => {
-      if (reason !== 'io client disconnect') {
-        setStatus('connecting')
-        toast('Reconnecting…', { icon: '🔄' })
+    socket.on("disconnect", (reason) => {
+      if (reason !== "io client disconnect") {
+        setStatus("connecting");
+        toast("Reconnecting...");
       }
-    })
+    });
 
-    socket.on('reconnect', () => {
-      setStatus('live')
-      toast.success('Reconnected')
-      socket.emit('join-room', { roomId })
-    })
-
-    return () => socket.disconnect()
-  }, [roomId, navigate])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function verifyRoom() {
-      try {
-        await axios.get(`${API}/api/rooms/${roomId}`)
-      } catch (err) {
-        if (cancelled) return
-        setStatus('error')
-        toast.error(err.response?.data?.error || 'Room not found')
-      }
-    }
-
-    verifyRoom()
+    socket.on("reconnect", () => {
+      socket.emit("join-room", { roomId });
+    });
 
     return () => {
-      cancelled = true
+      const editorContent = editorRef.current?.getContent?.();
+      const currentCode = editorContent || codeRef.current;
+      if (currentCode && socket.connected) {
+        socket.emit("sync-content", {
+          roomId,
+          language: languageRef.current,
+          content: currentCode,
+        });
+      }
+      socket.disconnect();
+    };
+  }, [access?.allowed, fetchRoomAccess, navigate, roomId]);
+
+  async function requestAccess() {
+    try {
+      await axios.post(`${API}/api/rooms/${roomId}/request`, {}, {
+        headers: authHeaders(),
+      });
+      setStatus("pending");
+      toast.success("Request sent");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to request access");
     }
-  }, [roomId])
+  }
 
-  // ── Apply language change ─────────────────────────────────────────
+  async function decideRequest(userId, allow) {
+    try {
+      const { data } = await axios.post(
+        `${API}/api/rooms/${roomId}/requests/${userId}/${allow ? "allow" : "deny"}`,
+        {},
+        { headers: authHeaders() },
+      );
+      setPendingRequests(data.room?.pendingRequests || []);
+      setAllowedUsers(data.room?.allowedUsers || []);
+      toast.success(allow ? "Joiner allowed" : "Request denied");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to update request");
+    }
+  }
+
+  async function removeJoiner(userId) {
+    try {
+      const { data } = await axios.delete(
+        `${API}/api/rooms/${roomId}/joiners/${userId}`,
+        { headers: authHeaders() },
+      );
+      setAllowedUsers(data.room?.allowedUsers || []);
+      setUsers((prev) => prev.filter((user) => user.userId !== userId));
+      toast.success("Joiner removed");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to remove joiner");
+    }
+  }
+
   const applyLanguageChange = (lang) => {
-    const newCode =
-      codeMapRef.current[lang] ||
-      CODE_SKELETONS[lang] ||
-      ''
+    const newCode = codeMapRef.current[lang] || CODE_SKELETONS[lang] || "";
+    const editorContent = editorRef.current?.getContent?.();
+    const currentCode = editorContent || codeRef.current;
 
-    setLanguage(lang)
-    socketRef.current?.emit('language-change', { language: lang })
+    if (currentCode && socketRef.current?.connected) {
+      socketRef.current.emit("sync-content", {
+        roomId,
+        language,
+        content: currentCode,
+      });
+    }
 
-    setInitialContent(newCode)
-    codeRef.current = newCode
-
-    isSkeletonRef.current = newCode.includes('__SKELETON__')
+    setLanguage(lang);
+    socketRef.current?.emit("language-change", { language: lang });
+    setInitialContent(newCode);
+    codeRef.current = newCode;
+    isSkeletonRef.current = newCode.includes("__SKELETON__");
 
     setTimeout(() => {
-      editorRef.current?.setContent(newCode)
-    }, 100)
-  }
+      editorRef.current?.setContent(newCode);
+    }, 100);
+  };
 
-  // ── Language change trigger ───────────────────────────────────────
-  const handleLanguageChange = useCallback((lang) => {
-    codeMapRef.current[language] = codeRef.current
+  const handleLanguageChange = useCallback(
+    (lang) => {
+      codeMapRef.current[language] = codeRef.current;
 
-    if (!isSkeletonRef.current) {
-      setPendingLanguage(lang)
-      setShowLangConfirm(true)
-      return
-    }
-
-    applyLanguageChange(lang)
-  }, [language])
-
-  const confirmLanguageChange = () => {
-    if (!pendingLanguage) return
-    applyLanguageChange(pendingLanguage)
-    setPendingLanguage(null)
-    setShowLangConfirm(false)
-  }
-
-  const cancelLanguageChange = () => {
-    setPendingLanguage(null)
-    setShowLangConfirm(false)
-  }
-
-  // ── Code change ───────────────────────────────────────────────────
-  const handleCodeChange = useCallback((val) => {
-    const newVal = val || ''
-    codeRef.current = newVal
-    codeMapRef.current[language] = newVal
-
-    if (isSkeletonRef.current && newVal) {
-      if (!newVal.includes('__SKELETON__')) {
-        isSkeletonRef.current = false
+      if (!isSkeletonRef.current) {
+        setPendingLanguage(lang);
+        setShowLangConfirm(true);
+        return;
       }
-    }
-  }, [language])
 
-  // ── Run code ──────────────────────────────────────────────────────
+      applyLanguageChange(lang);
+    },
+    [language],
+  );
+
+  const handleCodeChange = useCallback(
+    (val) => {
+      const newVal = val || "";
+      codeRef.current = newVal;
+      codeMapRef.current[language] = newVal;
+
+      if (isSkeletonRef.current && newVal && !newVal.includes("__SKELETON__")) {
+        isSkeletonRef.current = false;
+      }
+    },
+    [language],
+  );
+
   const handleRun = useCallback(async () => {
-    setExecuting(true)
-    setShowOutput(true)
-    setOutput(null)
+    setExecuting(true);
+    setShowOutput(true);
+    setOutput(null);
 
     try {
       const { data } = await axios.post(`${API}/api/execute`, {
         code: codeRef.current,
         language,
-      })
-      setOutput(data)
+      });
+      setOutput(data);
     } catch (err) {
       setOutput({
-        stdout: '',
-        stderr: err.response?.data?.error || 'Execution failed',
+        stdout: "",
+        stderr: err.response?.data?.error || "Execution failed",
         exitCode: -1,
         executionTime: 0,
-      })
+      });
     } finally {
-      setExecuting(false)
+      setExecuting(false);
     }
-  }, [language])
+  }, [language]);
 
   const handleCopyLink = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href)
-    toast.success('Room link copied!')
-  }, [])
+    navigator.clipboard.writeText(roomId);
+    toast.success("Room ID copied");
+  }, [navigate, roomId]);
+
+  const handleLeaveRoom = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
 
   const handleEndRoom = useCallback(() => {
-    if (!socketRef.current) return
-    setEnding(true)
-    socketRef.current.emit('end-room')
-  }, [])
+    if (!socketRef.current) return;
+    setEnding(true);
+    socketRef.current.emit("end-room");
+  }, []);
 
-  // ── UI ───────────────────────────────────────────────────────────
-  if (status === 'connecting') return <div className="h-screen flex items-center justify-center">Connecting...</div>
-  if (status === 'error') return <div className="h-screen flex items-center justify-center">Room not found</div>
+  function AccessShell({ title, children }) {
+    return (
+      <div className="min-h-screen bg-editor-bg text-editor-text flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-editor-sidebar border border-editor-border rounded-lg p-5">
+          <h1 className="text-base font-semibold mb-2">{title}</h1>
+          {roomName && <p className="text-xs text-editor-muted mb-4">{roomName}</p>}
+          {children}
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "checking" || status === "connecting") {
+    return (
+      <div className="h-screen flex items-center justify-center text-editor-muted">
+        Connecting...
+      </div>
+    );
+  }
+
+  if (status === "login") {
+    return (
+      <AccessShell title="Sign in required">
+        <p className="text-sm text-editor-muted mb-4">
+          You need an account to request access to this room.
+        </p>
+        <Link to="/" className="btn-primary inline-block text-center w-full">
+          Go home
+        </Link>
+      </AccessShell>
+    );
+  }
+
+  if (status === "request") {
+    return (
+      <AccessShell title="Request access">
+        <p className="text-sm text-editor-muted mb-4">
+          The creator needs to approve you before the room opens.
+        </p>
+        <button type="button" onClick={requestAccess} className="btn-primary w-full">
+          Request to join
+        </button>
+      </AccessShell>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <AccessShell title="Waiting for approval">
+        <p className="text-sm text-editor-muted mb-4">
+          Your request is pending. This page will open when you are allowed in.
+        </p>
+        <button type="button" onClick={fetchRoomAccess} className="btn-ghost w-full">
+          Check again
+        </button>
+      </AccessShell>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="h-screen flex items-center justify-center text-editor-muted">
+        Room not found
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-editor-bg">
-
       <Toolbar
         roomId={roomId}
         language={language}
         onLanguageChange={handleLanguageChange}
         onRun={handleRun}
         onCopyLink={handleCopyLink}
+        onLeaveRoom={handleLeaveRoom}
         onEndRoom={handleEndRoom}
+        role={role}
         executing={executing}
         ending={ending}
-        connected={status === 'live'}
+        connected={status === "live"}
         userCount={users.length}
         showOutput={showOutput}
-        onToggleOutput={() => setShowOutput(v => !v)}
+        onToggleOutput={() => setShowOutput((v) => !v)}
         showChat={showChat}
-        onToggleChat={() => setShowChat(v => !v)}
+        onToggleChat={() => setShowChat((v) => !v)}
       />
+
+      {role === "creator" && pendingRequests.length > 0 && (
+        <div className="bg-editor-sidebar border-b border-editor-border px-3 py-2 flex items-center gap-2 overflow-x-auto">
+          <span className="text-xs text-editor-muted shrink-0">Requests</span>
+          {pendingRequests.map((request) => (
+            <div key={request.userId} className="flex items-center gap-2 text-xs">
+              <span className="text-editor-text">{request.username}</span>
+              <button
+                type="button"
+                onClick={() => decideRequest(request.userId, true)}
+                className="px-2 py-1 rounded bg-editor-accent text-editor-bg"
+              >
+                Allow
+              </button>
+              <button
+                type="button"
+                onClick={() => decideRequest(request.userId, false)}
+                className="px-2 py-1 rounded text-editor-muted hover:text-editor-text hover:bg-editor-border"
+              >
+                Deny
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <CollabEditor
@@ -311,7 +509,12 @@ export default function RoomPage() {
             onClose={() => setShowChat(false)}
           />
         ) : (
-          <UserList users={users} />
+          <UserList
+            users={users}
+            role={role}
+            allowedUsers={allowedUsers}
+            onRemoveJoiner={removeJoiner}
+          />
         )}
       </div>
 
@@ -324,29 +527,33 @@ export default function RoomPage() {
         />
       )}
 
-      {/* ✅ CUSTOM MODAL */}
       {showLangConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-editor-bg border rounded-lg p-6 w-[320px] shadow-xl">
-            <h3 className="text-white text-lg font-semibold mb-2">
-              Switch Language?
+          <div className="bg-editor-bg border border-editor-border rounded-lg p-5 w-[320px] shadow-xl">
+            <h3 className="text-editor-text text-base font-semibold mb-2">
+              Switch language?
             </h3>
-
-            <p className="text-gray-400 text-sm mb-4">
+            <p className="text-editor-muted text-sm mb-4">
               Your current code will be replaced.
             </p>
-
             <div className="flex justify-end gap-2">
               <button
-                onClick={cancelLanguageChange}
-                className="px-3 py-1.5 text-sm bg-gray-700 rounded"
+                onClick={() => {
+                  setPendingLanguage(null);
+                  setShowLangConfirm(false);
+                }}
+                className="btn-ghost px-3 py-1.5 text-sm"
               >
                 Cancel
               </button>
-
               <button
-                onClick={confirmLanguageChange}
-                className="px-3 py-1.5 text-sm bg-editor-accent text-white rounded"
+                onClick={() => {
+                  if (!pendingLanguage) return;
+                  applyLanguageChange(pendingLanguage);
+                  setPendingLanguage(null);
+                  setShowLangConfirm(false);
+                }}
+                className="btn-primary px-3 py-1.5 text-sm"
               >
                 Continue
               </button>
@@ -354,7 +561,6 @@ export default function RoomPage() {
           </div>
         </div>
       )}
-
     </div>
-  )
+  );
 }
