@@ -34,8 +34,8 @@ services:
       - key: SANDBOX_TIMEOUT_MS
         value: 10000
       - key: CODE_RUNNER_MODE
-        value: local
+        value: piston
+      - key: PISTON_API_URL
+        value: https://emkc.org/api/v2/piston
       - key: ALLOW_LOCAL_CODE_EXECUTION
-        value: true
-      - key: SANDBOX_RUN_AS_USER
-        value: sandbox:sandbox
+        value: false

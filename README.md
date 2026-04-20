@@ -102,17 +102,17 @@ Use this split for hosted deployment:
 - Render runs the backend as a Docker web service.
 - MongoDB should be hosted separately, for example MongoDB Atlas.
 
-The Render backend image installs all supported language runtimes. That means users can run Python, Java, C++, Rust, Go, and the other supported languages without those runtimes being installed on the host machine.
+For the most reliable free-tier Render deployment, use the remote Piston runner. That means Render only hosts the app API, while code execution is sent to a code-runner API that already has the language runtimes.
 
 For Render, use:
 
 ```env
-CODE_RUNNER_MODE=local
-ALLOW_LOCAL_CODE_EXECUTION=true
-SANDBOX_RUN_AS_USER=sandbox:sandbox
+CODE_RUNNER_MODE=piston
+PISTON_API_URL=https://emkc.org/api/v2/piston
+ALLOW_LOCAL_CODE_EXECUTION=false
 ```
 
-In this mode, "local" means inside the Render Docker container, not on your laptop. The container includes the runtimes and runs submitted code from a temp directory under a separate low-privilege user.
+This avoids relying on Render having `javac`, `gcc`, `rustc`, and other compilers installed in the running service. For a self-hosted VPS, you can still use the Docker-per-execution mode described below.
 
 Set these frontend env vars in Vercel:
 
@@ -225,7 +225,8 @@ codesteam/
 | `SMTP_PASS` | SMTP password | Required for real email |
 | `MAIL_FROM` | Sender email address | SMTP user fallback |
 | `SANDBOX_TIMEOUT_MS` | Code execution timeout | `10000` |
-| `CODE_RUNNER_MODE` | `local` for Render Docker image, `docker` for self-hosted Docker-per-run | `local` on Render |
+| `CODE_RUNNER_MODE` | `piston` for Render/free hosting, `docker` for self-hosted Docker-per-run, `local` for local installed runtimes | `piston` on Render |
+| `PISTON_API_URL` | Remote Piston API base URL when using `CODE_RUNNER_MODE=piston` | `https://emkc.org/api/v2/piston` |
 | `ALLOW_LOCAL_CODE_EXECUTION` | Required when using `CODE_RUNNER_MODE=local` in production | `false` |
 | `SANDBOX_RUN_AS_USER` | Linux user used for local execution inside the backend container | `sandbox:sandbox` on Render |
 | `SANDBOX_DOCKER_IMAGE` | Docker image used for code execution | `codesteam-sandbox:latest` |

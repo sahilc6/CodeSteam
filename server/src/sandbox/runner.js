@@ -19,6 +19,9 @@ const DOCKER_PIDS_LIMIT = process.env.SANDBOX_DOCKER_PIDS_LIMIT || "64";
 const LOCAL_RUN_AS_USER = process.env.SANDBOX_RUN_AS_USER || "";
 const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const JAVA_HOME = process.env.JAVA_HOME || "/usr/lib/jvm/java-17-openjdk";
+const PISTON_API_URL = (
+  process.env.PISTON_API_URL || "https://emkc.org/api/v2/piston"
+).replace(/\/$/, "");
 const PRIVILEGE_DROP_BIN =
   process.env.SANDBOX_PRIVILEGE_DROP_BIN ||
   ["/sbin/su-exec", "/usr/bin/su-exec", "/usr/local/bin/su-exec"].find((bin) =>
@@ -60,6 +63,22 @@ const LANGUAGE_CONFIG = {
   c: { ext: "c", compiled: true },
   rust: { ext: "rs", compiled: true },
 };
+
+const PISTON_LANGUAGES = {
+  javascript: { language: "javascript", file: "main.js" },
+  typescript: { language: "typescript", file: "main.ts" },
+  python: { language: "python", file: "main.py" },
+  java: { language: "java", file: "Main.java" },
+  cpp: { language: "c++", file: "main.cpp" },
+  c: { language: "c", file: "main.c" },
+  go: { language: "go", file: "main.go" },
+  rust: { language: "rust", file: "main.rs" },
+  ruby: { language: "ruby", file: "main.rb" },
+  php: { language: "php", file: "main.php" },
+  bash: { language: "bash", file: "main.sh" },
+};
+
+let pistonRuntimesPromise;
 
 function resolveRuntime(command, fallbackPaths = []) {
   if (process.env[`${command.toUpperCase().replace(/\W/g, "_")}_BIN`]) {
@@ -128,6 +147,10 @@ async function runCode(language, code, stdin = "") {
     return runCodeInDocker(language, code, stdin);
   }
 
+  if (RUNNER_MODE === "piston") {
+    return runCodeInPiston(language, code, stdin);
+  }
+
   if (process.env.NODE_ENV === "production" && process.env.ALLOW_LOCAL_CODE_EXECUTION !== "true") {
     return {
       stdout: "",
@@ -158,6 +181,80 @@ async function runCode(language, code, stdin = "") {
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+async function getPistonRuntimes() {
+  pistonRuntimesPromise ||= fetch(`${PISTON_API_URL}/runtimes`).then(async (res) => {
+    if (!res.ok) {
+      throw new Error(`Piston runtimes request failed with status ${res.status}`);
+    }
+    return res.json();
+  });
+
+  return pistonRuntimesPromise;
+}
+
+async function selectPistonRuntime(language) {
+  const config = PISTON_LANGUAGES[language];
+  if (!config) throw new Error(`Unsupported language: ${language}`);
+
+  const runtimes = await getPistonRuntimes();
+  const runtime = runtimes.find((item) => {
+    const aliases = item.aliases || [];
+    return item.language === config.language || aliases.includes(config.language);
+  });
+
+  if (!runtime) {
+    throw new Error(`No Piston runtime is available for ${language}`);
+  }
+
+  return { ...config, version: runtime.version };
+}
+
+async function runCodeInPiston(language, code, stdin) {
+  const startedAt = Date.now();
+  const runtime = await selectPistonRuntime(language);
+
+  const res = await fetch(`${PISTON_API_URL}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      language: runtime.language,
+      version: runtime.version,
+      files: [{ name: runtime.file, content: code }],
+      stdin: stdin || "",
+      run_timeout: TIMEOUT_MS,
+      compile_timeout: TIMEOUT_MS,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    return {
+      stdout: "",
+      stderr: `Remote code runner failed with status ${res.status}: ${body}`,
+      exitCode: -1,
+      executionTime: Date.now() - startedAt,
+      timedOut: false,
+    };
+  }
+
+  const result = await res.json();
+  const compile = result.compile;
+  const run = result.run || {};
+  const compilationFailed = compile && compile.code !== 0;
+
+  return {
+    stdout: compilationFailed ? "" : run.stdout || "",
+    stderr: compilationFailed
+      ? `Compilation error:\n${compile.output || compile.stderr || ""}`
+      : run.stderr || "",
+    exitCode: compilationFailed ? compile.code ?? -1 : run.code ?? -1,
+    signal: compilationFailed ? compile.signal || null : run.signal || null,
+    executionTime: Date.now() - startedAt,
+    timedOut: run.signal === "SIGKILL" || run.signal === "SIGTERM",
+    compilationError: compilationFailed || undefined,
+  };
 }
 
 function dockerScript(language) {
