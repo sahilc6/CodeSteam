@@ -20,7 +20,8 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime-base
 
-ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk" \
+    PATH="/usr/lib/jvm/java-17-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Install all language runtimes needed by the code runner.
 RUN apk add --no-cache \

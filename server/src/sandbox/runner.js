@@ -18,6 +18,7 @@ const DOCKER_CPUS = process.env.SANDBOX_DOCKER_CPUS || "0.5";
 const DOCKER_PIDS_LIMIT = process.env.SANDBOX_DOCKER_PIDS_LIMIT || "64";
 const LOCAL_RUN_AS_USER = process.env.SANDBOX_RUN_AS_USER || "";
 const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+const JAVA_HOME = process.env.JAVA_HOME || "/usr/lib/jvm/java-17-openjdk";
 const PRIVILEGE_DROP_BIN =
   process.env.SANDBOX_PRIVILEGE_DROP_BIN ||
   ["/sbin/su-exec", "/usr/bin/su-exec", "/usr/local/bin/su-exec"].find((bin) =>
@@ -60,29 +61,51 @@ const LANGUAGE_CONFIG = {
   rust: { ext: "rs", compiled: true },
 };
 
+function resolveRuntime(command, fallbackPaths = []) {
+  if (process.env[`${command.toUpperCase().replace(/\W/g, "_")}_BIN`]) {
+    return process.env[`${command.toUpperCase().replace(/\W/g, "_")}_BIN`];
+  }
+
+  return fallbackPaths.find((bin) => fsSync.existsSync(bin)) || command;
+}
+
 const COMPILE_STEPS = {
   cpp: {
     compile: (src, out) => ({
-      cmd: "g++",
+      cmd: resolveRuntime("g++", ["/usr/bin/g++"]),
       args: ["-O2", "-std=c++17", src, "-o", out],
     }),
     run: (out) => ({ cmd: out, args: [] }),
   },
   c: {
     compile: (src, out) => ({
-      cmd: "gcc",
+      cmd: resolveRuntime("gcc", ["/usr/bin/gcc"]),
       args: ["-O2", src, "-o", out, "-lm"],
     }),
     run: (out) => ({ cmd: out, args: [] }),
   },
   rust: {
-    compile: (src, out) => ({ cmd: "rustc", args: ["-O", src, "-o", out] }),
+    compile: (src, out) => ({
+      cmd: resolveRuntime("rustc", ["/usr/bin/rustc"]),
+      args: ["-O", src, "-o", out],
+    }),
     run: (out) => ({ cmd: out, args: [] }),
   },
   java: {
-    compile: (src, _out, dir) => ({ cmd: "javac", args: ["-d", dir, src] }),
+    compile: (src, _out, dir) => ({
+      cmd: resolveRuntime("javac", [
+        `${JAVA_HOME}/bin/javac`,
+        "/usr/bin/javac",
+        "/usr/local/bin/javac",
+      ]),
+      args: ["-d", dir, src],
+    }),
     run: (_out, dir) => ({
-      cmd: "java",
+      cmd: resolveRuntime("java", [
+        `${JAVA_HOME}/bin/java`,
+        "/usr/bin/java",
+        "/usr/local/bin/java",
+      ]),
       args: ["-cp", dir, "-Xmx128m", "Main"],
     }),
     rename: "Main.java",

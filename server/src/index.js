@@ -10,10 +10,14 @@ const PORT = process.env.PORT || 5000
 function logRuntimeAvailability() {
   const runtimes = ['node', 'python3', 'javac', 'java', 'gcc', 'g++', 'go', 'rustc', 'ruby', 'php', 'bash', 'ts-node']
   const available = runtimes.map((name) => {
-    const result = spawnSync('sh', ['-lc', `command -v ${name}`], { encoding: 'utf8' })
+    const result = spawnSync('sh', ['-lc', `command -v ${name}`], {
+      encoding: 'utf8',
+      env: process.env,
+    })
     return `${name}=${result.status === 0 ? result.stdout.trim() : 'missing'}`
   })
 
+  logger.info(`Code runner cwd: ${process.cwd()}`)
   logger.info(`Code runner runtimes: ${available.join(', ')}`)
 }
 

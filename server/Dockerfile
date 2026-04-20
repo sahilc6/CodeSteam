@@ -2,7 +2,8 @@ FROM node:20-alpine
 
 ENV NODE_ENV=production \
     PORT=5000 \
-    PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    JAVA_HOME="/usr/lib/jvm/java-17-openjdk" \
+    PATH="/usr/lib/jvm/java-17-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 WORKDIR /app
 
