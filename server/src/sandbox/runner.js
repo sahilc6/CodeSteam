@@ -17,6 +17,7 @@ const DOCKER_MEMORY = process.env.SANDBOX_DOCKER_MEMORY || "256m";
 const DOCKER_CPUS = process.env.SANDBOX_DOCKER_CPUS || "0.5";
 const DOCKER_PIDS_LIMIT = process.env.SANDBOX_DOCKER_PIDS_LIMIT || "64";
 const LOCAL_RUN_AS_USER = process.env.SANDBOX_RUN_AS_USER || "";
+const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 const PRIVILEGE_DROP_BIN =
   process.env.SANDBOX_PRIVILEGE_DROP_BIN ||
   ["/sbin/su-exec", "/usr/bin/su-exec", "/usr/local/bin/su-exec"].find((bin) =>
@@ -255,9 +256,11 @@ function exec(cmd, args, stdin, cwd, options = {}) {
     const proc = spawn(spawnCmd, spawnArgs, {
       cwd,
       env: {
-        PATH: process.env.PATH,
+        PATH: process.env.PATH || DEFAULT_PATH,
         HOME: os.tmpdir(),
         TMPDIR: cwd,
+        GOCACHE: path.join(cwd, ".go-cache"),
+        GOMODCACHE: path.join(cwd, ".go-mod-cache"),
         LANG: "en_US.UTF-8",
       },
       detached: false,

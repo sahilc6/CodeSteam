@@ -20,7 +20,9 @@ RUN npm run build
 # ─────────────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime-base
 
-# Install all language runtimes needed by the sandbox
+ENV PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Install all language runtimes needed by the code runner.
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -35,17 +37,15 @@ RUN apk add --no-cache \
     php83 \
     bash \
     docker-cli \
-    openjdk17 \
-    # Security hardening
-    && addgroup -S appgroup \
-    && adduser  -S appuser -G appgroup \
+    openjdk17
+
+RUN addgroup -S appgroup \
+    && adduser -S appuser -G appgroup \
     && addgroup -S sandbox \
-    && adduser  -S sandbox -G sandbox \
+    && adduser -S sandbox -G sandbox \
     && npm install -g typescript ts-node \
     && ln -sf /sbin/su-exec /usr/local/bin/su-exec \
-    && if command -v php83 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; then ln -s /usr/bin/php83 /usr/bin/php; fi \
-    # Clean apk cache
-    && rm -rf /var/cache/apk/*
+    && if command -v php83 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; then ln -s /usr/bin/php83 /usr/bin/php; fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Stage 3: install production Node deps only
