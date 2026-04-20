@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { X, LogIn, UserPlus, Loader2 } from 'lucide-react'
 import useAuthStore from '../../context/authStore'
 
-export default function AuthModal({ onClose }) {
+export default function AuthModal({ onClose, onSuccess }) {
   const [tab,      setTab]      = useState('login')   // 'login' | 'register'
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -19,7 +19,10 @@ export default function AuthModal({ onClose }) {
     } else {
       ok = await register(username, email, password)
     }
-    if (ok) onClose()
+    if (ok) {
+      if (onSuccess) onSuccess()
+      else onClose()
+    }
   }
 
   return (

@@ -174,6 +174,42 @@ async function requestToJoin(req, res) {
   }
 }
 
+async function cancelJoinRequest(req, res) {
+  try {
+    const room = await Room.findOne({ roomId: req.params.roomId })
+    if (!room) return res.status(404).json({ error: 'Room not found' })
+    if (room.isEnded) return res.status(410).json({ error: 'This room has ended', accessStatus: 'ended' })
+
+    const request = (room.joinRequests || []).find(r => sameId(r.userId, req.userId))
+    if (!request) {
+      return res.json({ message: 'No pending request', accessStatus: 'request-needed' })
+    }
+
+    room.joinRequests = room.joinRequests.filter(r => !sameId(r.userId, req.userId))
+    room.activity.push({
+      type: 'cancelled',
+      message: `${request.username} cancelled their join request`,
+      user: request.username,
+    })
+    await room.save()
+
+    const socket = req.app.get('io')
+    if (socket) {
+      socket.to(room.roomId).emit('join-request-updated', {
+        userId: request.userId,
+        allowed: false,
+        cancelled: true,
+        username: request.username,
+      })
+    }
+
+    res.json({ message: 'Request cancelled', accessStatus: 'request-needed' })
+  } catch (err) {
+    logger.error('cancelJoinRequest error:', err)
+    res.status(500).json({ error: 'Failed to cancel request' })
+  }
+}
+
 async function decideJoinRequest(req, res, allow) {
   try {
     const room = await Room.findOne({ roomId: req.params.roomId })
@@ -321,6 +357,7 @@ module.exports = {
   listRooms,
   getMyRooms,
   requestToJoin,
+  cancelJoinRequest,
   allowJoinRequest,
   denyJoinRequest,
   removeJoiner,

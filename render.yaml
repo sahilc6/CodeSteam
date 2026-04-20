@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: codesteam-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: SANDBOX_TIMEOUT_MS
+        value: 10000
+      - key: CODE_RUNNER_MODE
+        value: local
+      - key: ALLOW_LOCAL_CODE_EXECUTION
+        value: true
+      - key: SANDBOX_RUN_AS_USER
+        value: sandbox:sandbox

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import toast from 'react-hot-toast'
@@ -8,6 +8,11 @@ import useAuthStore from '../../context/authStore'
 import { getApiBaseUrl } from '../../utils/runtimeConfig'
 
 const API = getApiBaseUrl()
+
+function authHeaders() {
+  const token = localStorage.getItem('token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 const LANGUAGES = [
   'javascript','typescript','python','java','cpp',
@@ -23,11 +28,15 @@ const LANG_COLORS = {
 export default function HomePage() {
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
+  const authSuccessRef = useRef(null)
 
   const [name, setName] = useState('')
   const [language, setLanguage] = useState('javascript')
   const [joinId, setJoinId] = useState('')
   const [creating, setCreating] = useState(false)
+  const [checkingJoin, setCheckingJoin] = useState(false)
+  const [requestingJoin, setRequestingJoin] = useState(false)
+  const [joinAccess, setJoinAccess] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -58,6 +67,62 @@ export default function HomePage() {
     loadMyRooms()
   }, [loadMyRooms])
 
+  const checkJoinAccess = useCallback(async (id) => {
+    if (!id) return
+    setCheckingJoin(true)
+    try {
+      const { data } = await axios.get(`${API}/api/rooms/${id}`, {
+        headers: authHeaders(),
+      })
+      setJoinAccess(null)
+      navigate(`/room/${data.roomId || id}`)
+    } catch (err) {
+      const data = err.response?.data || {}
+      const accessStatus = data.accessStatus
+
+      if (accessStatus === 'login-required') {
+        authSuccessRef.current = () => checkJoinAccess(id)
+        setShowAuth(true)
+        return
+      }
+
+      if (accessStatus === 'request-needed') {
+        setJoinAccess({
+          status: 'request',
+          roomId: data.roomId || id,
+          name: data.name || '',
+        })
+        return
+      }
+
+      if (accessStatus === 'pending') {
+        setJoinAccess({
+          status: 'pending',
+          roomId: data.roomId || id,
+          name: data.name || '',
+        })
+        return
+      }
+
+      if (accessStatus === 'ended') {
+        toast.error('This room has ended')
+        return
+      }
+
+      toast.error(data.error || 'Room not found')
+    } finally {
+      setCheckingJoin(false)
+    }
+  }, [navigate])
+
+  useEffect(() => {
+    if (joinAccess?.status !== 'pending') return undefined
+    const timer = setInterval(() => {
+      checkJoinAccess(joinAccess.roomId)
+    }, 3000)
+    return () => clearInterval(timer)
+  }, [checkJoinAccess, joinAccess])
+
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (!e.target.closest('.dropdown')) {
@@ -73,6 +138,7 @@ export default function HomePage() {
   async function createRoom(e) {
     e.preventDefault()
     if (!user) {
+      authSuccessRef.current = null
       setShowAuth(true)
       return
     }
@@ -92,15 +158,82 @@ export default function HomePage() {
     }
   }
 
+  async function requestJoinAccess() {
+    if (!joinAccess?.roomId) return
+    setRequestingJoin(true)
+    try {
+      const { data } = await axios.post(
+        `${API}/api/rooms/${joinAccess.roomId}/request`,
+        {},
+        { headers: authHeaders() },
+      )
+
+      if (data.accessStatus === 'allowed') {
+        setJoinAccess(null)
+        navigate(`/room/${joinAccess.roomId}`)
+        return
+      }
+
+      setJoinAccess((current) => ({
+        ...(current || {}),
+        status: 'pending',
+      }))
+      toast.success('Request sent')
+    } catch (err) {
+      const data = err.response?.data || {}
+      if (data.accessStatus === 'login-required' || err.response?.status === 401) {
+        authSuccessRef.current = () => requestJoinAccess()
+        setShowAuth(true)
+        return
+      }
+      toast.error(data.error || 'Failed to request access')
+    } finally {
+      setRequestingJoin(false)
+    }
+  }
+
+  async function closeJoinAccess() {
+    const current = joinAccess
+    if (current?.status === 'pending' && current.roomId) {
+      try {
+        await axios.delete(`${API}/api/rooms/${current.roomId}/request`, {
+          headers: authHeaders(),
+        })
+      } catch (err) {
+        toast.error(err.response?.data?.error || 'Failed to cancel request')
+        return
+      }
+    }
+
+    setJoinAccess(null)
+    setCheckingJoin(false)
+    setRequestingJoin(false)
+  }
+
   function joinRoom(e) {
     e.preventDefault()
+    const id = joinId.trim().split('/').pop()
+    if (!id) return
+
     if (!user) {
+      authSuccessRef.current = () => checkJoinAccess(id)
       setShowAuth(true)
       return
     }
-    const id = joinId.trim().split('/').pop()
-    if (!id) return
-    navigate(`/room/${id}`)
+
+    checkJoinAccess(id)
+  }
+
+  function AccessModal({ title, children }) {
+    return (
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="w-full max-w-sm bg-editor-sidebar border border-editor-border rounded-lg p-5 shadow-2xl">
+          <h1 className="text-base font-semibold text-editor-text mb-2">{title}</h1>
+          {joinAccess?.name && <p className="text-xs text-editor-muted mb-4">{joinAccess.name}</p>}
+          {children}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -295,8 +428,8 @@ export default function HomePage() {
             <p className="h-[38px] text-xs text-editor-muted leading-5">
               You can request access after entering the room ID.
             </p>
-            <button type="submit" className="btn-primary w-full flex items-center justify-center gap-1.5">
-              <ChevronRight size={13} /> Join
+            <button type="submit" disabled={checkingJoin} className="btn-primary w-full flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed">
+              {checkingJoin ? 'Checking...' : <><ChevronRight size={13} /> Join</>}
             </button>
           </form>
         </div>
@@ -341,7 +474,49 @@ export default function HomePage() {
         </div>
       </div>
 
-      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+      {joinAccess?.status === 'request' && (
+        <AccessModal title="Join room">
+          <p className="text-sm text-editor-muted mb-4">
+            The creator needs to approve you before the room opens.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={closeJoinAccess} className="btn-ghost px-3 py-1.5 text-sm">
+              Cancel
+            </button>
+            <button type="button" onClick={requestJoinAccess} disabled={requestingJoin} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-60 disabled:cursor-not-allowed">
+              {requestingJoin ? 'Joining...' : 'Join'}
+            </button>
+          </div>
+        </AccessModal>
+      )}
+
+      {joinAccess?.status === 'pending' && (
+        <AccessModal title="Waiting to be allowed">
+          <p className="text-sm text-editor-muted mb-4">
+            Waiting to be allowed by the room creator.
+          </p>
+          <div className="flex justify-end">
+            <button type="button" onClick={closeJoinAccess} className="btn-ghost px-3 py-1.5 text-sm">
+              Cancel
+            </button>
+          </div>
+        </AccessModal>
+      )}
+
+      {showAuth && (
+        <AuthModal
+          onClose={() => {
+            authSuccessRef.current = null
+            setShowAuth(false)
+          }}
+          onSuccess={() => {
+            const afterAuth = authSuccessRef.current
+            authSuccessRef.current = null
+            setShowAuth(false)
+            afterAuth?.()
+          }}
+        />
+      )}
     </div>
   )
 }

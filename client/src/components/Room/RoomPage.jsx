@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -8,6 +8,8 @@ import Toolbar from "./Toolbar";
 import UserList from "./UserList";
 import OutputPanel from "./OutputPanel";
 import ChatPanel from "./ChatPanel";
+import RequestsPanel from "./RequestsPanel";
+import AuthModal from "../UI/AuthModal";
 import { CODE_SKELETONS } from "../../utils/codeSkeletons";
 import { getApiBaseUrl, getWsBaseUrl } from "../../utils/runtimeConfig";
 
@@ -26,6 +28,7 @@ export default function RoomPage() {
   const socketRef = useRef(null);
   const codeRef = useRef("");
   const usernameRef = useRef("");
+  const showChatRef = useRef(false);
   const editorRef = useRef(null);
   const isSkeletonRef = useRef(true);
   const languageRef = useRef("javascript");
@@ -50,12 +53,19 @@ export default function RoomPage() {
   const [executing, setExecuting] = useState(false);
   const [ending, setEnding] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [pendingLanguage, setPendingLanguage] = useState(null);
   const [showLangConfirm, setShowLangConfirm] = useState(false);
 
   useEffect(() => {
     languageRef.current = language;
   }, [language]);
+
+  useEffect(() => {
+    showChatRef.current = showChat;
+    if (showChat) setChatUnreadCount(0);
+  }, [showChat]);
 
   const fetchRoomAccess = useCallback(async () => {
     try {
@@ -154,6 +164,17 @@ export default function RoomPage() {
         return [...prev, request];
       });
       toast(`${request.username} requested access`);
+    });
+
+    socket.on("join-request-updated", ({ userId, cancelled, username }) => {
+      setPendingRequests((prev) => prev.filter((request) => request.userId !== userId));
+      if (cancelled && username) toast(`${username} cancelled their request`);
+    });
+
+    socket.on("chat-message", () => {
+      if (!showChatRef.current) {
+        setChatUnreadCount((count) => count + 1);
+      }
     });
 
     socket.on("joiner-removed", ({ userId }) => {
@@ -377,16 +398,31 @@ export default function RoomPage() {
     socketRef.current.emit("end-room");
   }, []);
 
-  function AccessShell({ title, children }) {
+  function AccessModal({ title, children }) {
     return (
       <div className="min-h-screen bg-editor-bg text-editor-text flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-editor-sidebar border border-editor-border rounded-lg p-5">
-          <h1 className="text-base font-semibold mb-2">{title}</h1>
-          {roomName && <p className="text-xs text-editor-muted mb-4">{roomName}</p>}
-          {children}
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-sm bg-editor-sidebar border border-editor-border rounded-lg p-5 shadow-2xl">
+            <h1 className="text-base font-semibold mb-2">{title}</h1>
+            {roomName && <p className="text-xs text-editor-muted mb-4">{roomName}</p>}
+            {children}
+          </div>
         </div>
       </div>
     );
+  }
+
+  async function cancelAccessRequest() {
+    try {
+      if (status === "pending") {
+        await axios.delete(`${API}/api/rooms/${roomId}/request`, {
+          headers: authHeaders(),
+        });
+      }
+      navigate("/");
+    } catch (err) {
+      toast.error(err.response?.data?.error || "Failed to cancel request");
+    }
   }
 
   if (status === "checking" || status === "connecting") {
@@ -399,40 +435,45 @@ export default function RoomPage() {
 
   if (status === "login") {
     return (
-      <AccessShell title="Sign in required">
-        <p className="text-sm text-editor-muted mb-4">
-          You need an account to request access to this room.
-        </p>
-        <Link to="/" className="btn-primary inline-block text-center w-full">
-          Go home
-        </Link>
-      </AccessShell>
+      <div className="min-h-screen bg-editor-bg text-editor-text">
+        <AuthModal
+          onClose={() => navigate("/")}
+          onSuccess={fetchRoomAccess}
+        />
+      </div>
     );
   }
 
   if (status === "request") {
     return (
-      <AccessShell title="Request access">
+      <AccessModal title="Join room">
         <p className="text-sm text-editor-muted mb-4">
           The creator needs to approve you before the room opens.
         </p>
-        <button type="button" onClick={requestAccess} className="btn-primary w-full">
-          Request to join
-        </button>
-      </AccessShell>
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={cancelAccessRequest} className="btn-ghost px-3 py-1.5 text-sm">
+            Cancel
+          </button>
+          <button type="button" onClick={requestAccess} className="btn-primary px-3 py-1.5 text-sm">
+            Join
+          </button>
+        </div>
+      </AccessModal>
     );
   }
 
   if (status === "pending") {
     return (
-      <AccessShell title="Waiting for approval">
+      <AccessModal title="Waiting to be allowed">
         <p className="text-sm text-editor-muted mb-4">
-          Your request is pending. This page will open when you are allowed in.
+          Waiting to be allowed by the room creator.
         </p>
-        <button type="button" onClick={fetchRoomAccess} className="btn-ghost w-full">
-          Check again
-        </button>
-      </AccessShell>
+        <div className="flex justify-end">
+          <button type="button" onClick={cancelAccessRequest} className="btn-ghost px-3 py-1.5 text-sm">
+            Cancel
+          </button>
+        </div>
+      </AccessModal>
     );
   }
 
@@ -462,33 +503,22 @@ export default function RoomPage() {
         showOutput={showOutput}
         onToggleOutput={() => setShowOutput((v) => !v)}
         showChat={showChat}
-        onToggleChat={() => setShowChat((v) => !v)}
+        chatUnreadCount={chatUnreadCount}
+        onToggleChat={() => {
+          setShowRequests(false);
+          setShowChat((v) => {
+            const next = !v;
+            if (next) setChatUnreadCount(0);
+            return next;
+          });
+        }}
+        showRequests={showRequests}
+        onToggleRequests={() => {
+          setShowChat(false);
+          setShowRequests((v) => !v);
+        }}
+        requestCount={pendingRequests.length}
       />
-
-      {role === "creator" && pendingRequests.length > 0 && (
-        <div className="bg-editor-sidebar border-b border-editor-border px-3 py-2 flex items-center gap-2 overflow-x-auto">
-          <span className="text-xs text-editor-muted shrink-0">Requests</span>
-          {pendingRequests.map((request) => (
-            <div key={request.userId} className="flex items-center gap-2 text-xs">
-              <span className="text-editor-text">{request.username}</span>
-              <button
-                type="button"
-                onClick={() => decideRequest(request.userId, true)}
-                className="px-2 py-1 rounded bg-editor-accent text-editor-bg"
-              >
-                Allow
-              </button>
-              <button
-                type="button"
-                onClick={() => decideRequest(request.userId, false)}
-                className="px-2 py-1 rounded text-editor-muted hover:text-editor-text hover:bg-editor-border"
-              >
-                Deny
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="flex flex-1 overflow-hidden">
         <CollabEditor
@@ -507,6 +537,12 @@ export default function RoomPage() {
             roomId={roomId}
             username={usernameRef.current}
             onClose={() => setShowChat(false)}
+          />
+        ) : showRequests && role === "creator" ? (
+          <RequestsPanel
+            requests={pendingRequests}
+            onDecideRequest={decideRequest}
+            onClose={() => setShowRequests(false)}
           />
         ) : (
           <UserList

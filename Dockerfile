@@ -24,18 +24,25 @@ FROM node:20-alpine AS runtime-base
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    su-exec \
     gcc \
     g++ \
     make \
     musl-dev \
     go \
+    rust \
     ruby \
     php83 \
     bash \
-    openjdk17-jre \
+    docker-cli \
+    openjdk17 \
     # Security hardening
     && addgroup -S appgroup \
     && adduser  -S appuser -G appgroup \
+    && addgroup -S sandbox \
+    && adduser  -S sandbox -G sandbox \
+    && npm install -g typescript ts-node \
+    && if command -v php83 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; then ln -s /usr/bin/php83 /usr/bin/php; fi \
     # Clean apk cache
     && rm -rf /var/cache/apk/*
 
@@ -65,11 +72,14 @@ COPY server/src          ./src
 # We expose the path so docker-compose can reference it
 COPY --from=client-builder /build/client/dist ./public
 
-# Create logs dir with correct ownership
-RUN mkdir -p /app/logs && chown -R appuser:appgroup /app
+# Create logs dir with correct ownership and keep app files private from sandbox user
+RUN mkdir -p /app/logs \
+    && chown -R appuser:appgroup /app \
+    && chmod -R o-rwx /app
 
-# Drop to non-root
-USER appuser
+# Keep the server process able to drop submitted code to the sandbox user.
+# The app files are private to appuser/root, so sandboxed code cannot read them.
+USER root
 
 EXPOSE 5000
 

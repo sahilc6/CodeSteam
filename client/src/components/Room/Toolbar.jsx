@@ -9,6 +9,7 @@ import {
   Loader2,
   X,
   MessageCircle,
+  UserCheck,
 } from "lucide-react";
 
 const LANGUAGES = [
@@ -42,6 +43,10 @@ export default function Toolbar({
   onToggleOutput,
   showChat,
   onToggleChat,
+  chatUnreadCount = 0,
+  showRequests,
+  onToggleRequests,
+  requestCount = 0,
 }) {
   return (
     <header className="flex items-center gap-2 px-3 py-2 bg-editor-sidebar border-b border-editor-border shrink-0 select-none">
@@ -100,14 +105,38 @@ export default function Toolbar({
       <button
         onClick={onToggleChat}
         title="Chat"
-        className={`p-1.5 rounded transition-colors ${
+        className={`relative p-1.5 rounded transition-colors ${
           showChat
             ? "text-editor-accent bg-editor-border"
             : "text-editor-muted hover:text-editor-text hover:bg-editor-border"
         }`}
       >
         <MessageCircle size={15} />
+        {chatUnreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-editor-accent text-editor-bg text-[9px] leading-[14px] text-center font-semibold">
+            {chatUnreadCount}
+          </span>
+        )}
       </button>
+
+      {role === "creator" && (
+        <button
+          onClick={onToggleRequests}
+          title="Requests"
+          className={`relative p-1.5 rounded transition-colors ${
+            showRequests
+              ? "text-editor-accent bg-editor-border"
+              : "text-editor-muted hover:text-editor-text hover:bg-editor-border"
+          }`}
+        >
+          <UserCheck size={15} />
+          {requestCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-editor-accent text-editor-bg text-[9px] leading-[14px] text-center font-semibold">
+              {requestCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <button
         onClick={onRun}

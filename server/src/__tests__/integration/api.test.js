@@ -285,6 +285,29 @@ describe('Room endpoints', () => {
         .set('Authorization', `Bearer ${joinerToken}`)
       expect(removedAccess.status).toBe(403)
       expect(removedAccess.body.accessStatus).toBe('request-needed')
+
+      const requestedAgain = await request(app)
+        .post(`/api/rooms/${roomId}/request`)
+        .set('Authorization', `Bearer ${joinerToken}`)
+      expect(requestedAgain.status).toBe(201)
+      expect(requestedAgain.body.accessStatus).toBe('pending')
+
+      const cancelled = await request(app)
+        .delete(`/api/rooms/${roomId}/request`)
+        .set('Authorization', `Bearer ${joinerToken}`)
+      expect(cancelled.status).toBe(200)
+      expect(cancelled.body.accessStatus).toBe('request-needed')
+
+      const allowCancelled = await request(app)
+        .post(`/api/rooms/${roomId}/requests/${joinerId}/allow`)
+        .set('Authorization', `Bearer ${token}`)
+      expect(allowCancelled.status).toBe(404)
+
+      const afterCancel = await request(app)
+        .get(`/api/rooms/${roomId}`)
+        .set('Authorization', `Bearer ${joinerToken}`)
+      expect(afterCancel.status).toBe(403)
+      expect(afterCancel.body.accessStatus).toBe('request-needed')
     })
   })
 

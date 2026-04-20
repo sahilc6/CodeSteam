@@ -7,7 +7,7 @@
     "src/**/*.js",
     "!src/index.js"
   ],
-  "coverageThresholds": {
+  "coverageThreshold": {
     "global": {
       "branches": 60,
       "functions": 70,
@@ -17,6 +17,6 @@
   },
   "coverageReporters": ["text", "lcov", "html"],
   "testTimeout": 30000,
-  "setupFilesAfterFramework": [],
+  "setupFilesAfterEnv": [],
   "verbose": true
 }

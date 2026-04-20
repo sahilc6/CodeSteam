@@ -1,18 +1,26 @@
 # CodeSteam
 
-Real-time collaborative code editor — Node.js · React · Socket.io · MongoDB 
+CodeSteam is a real-time collaborative code editor built with React, Monaco Editor, Node.js, Socket.IO, and MongoDB.
+
+It supports private coding rooms, approval-based joining, live collaborative editing with Operational Transform, remote cursors, chat, and bounded multi-language code execution.
 
 ---
 
 ## Features
 
-- Multi-user live editing with **Operational Transform** sync
-- Room-based sessions with shareable links
-- **Monaco Editor** with syntax highlighting for 10+ languages
-- Sandboxed code execution (JavaScript, Python, Go, Java, C++, Rust, Ruby, PHP, Bash, C, TypeScript)
+- Real-time multi-user editing with a custom Operational Transform engine
+- Room-based collaboration with shareable room IDs
+- Approval flow for joiners before they can enter a room
+- Monaco Editor with syntax highlighting for multiple languages
 - Remote user cursors and selections
-- Nginx reverse proxy with WebSocket support
-- PM2 cluster mode — load tested to **200 concurrent users, sub-100ms latency**
+- Room chat with persisted message history
+- JWT authentication with email verification
+- Bounded code execution with timeouts, output caps, and temporary files
+- MongoDB persistence for rooms, users, activity, chat, and per-language file state
+- Docker Compose setup with MongoDB, Node.js, and Nginx reverse proxy
+- AWS EC2 deployment notes with PM2 and Nginx
+
+> Note: the code runner is suitable for a controlled project/demo environment. For an internet-facing production system, run untrusted code in stronger isolation such as per-run containers or dedicated workers with CPU/memory/network limits.
 
 ---
 
@@ -20,227 +28,295 @@ Real-time collaborative code editor — Node.js · React · Socket.io · MongoDB
 
 | Layer | Technology |
 |---|---|
-| Frontend | React 18, Vite, Monaco Editor, Socket.io-client, Tailwind CSS, Zustand |
-| Backend | Node.js, Express, Socket.io, Mongoose |
-| Database | MongoDB (local) or MongoDB Atlas |
-| Deployment | AWS EC2, Nginx, PM2 |
-| Containerisation | Docker + Docker Compose (optional) |
+| Frontend | React 18, Vite, Monaco Editor, Socket.IO Client, Tailwind CSS, Zustand |
+| Backend | Node.js, Express, Socket.IO, Mongoose |
+| Database | MongoDB or MongoDB Atlas |
+| Auth | JWT, bcrypt, email verification |
+| Testing | Jest, Supertest |
+| Deployment | Docker, Docker Compose, Nginx, PM2, AWS EC2 |
 
 ---
 
-## Quick Start (Local Development)
+## Project Highlights
+
+This project demonstrates:
+
+- Realtime event-driven backend design with Socket.IO
+- Conflict handling for collaborative text editing through Operational Transform
+- REST API design with validation, auth middleware, and access control
+- MongoDB schema design for users, rooms, join requests, activity, and chat
+- Multi-language code execution with runtime limits
+- Containerized deployment and reverse proxy configuration
+- Integration and unit testing for API, auth, room access, OT, and execution logic
+
+---
+
+## Quick Start
 
 ### Prerequisites
-- Node.js >= 18
-- MongoDB running locally (`mongod`) OR Docker
 
-### 1. Clone and install
+- Node.js 18+
+- MongoDB running locally, or Docker
+- SMTP credentials if you want email verification to send real emails
+
+### 1. Install dependencies
+
 ```bash
-git clone https://github.com/YOUR_USERNAME/codesteam
-cd codesteam
 npm run install:all
 ```
 
 ### 2. Configure environment
+
+Create local environment files from the examples:
+
 ```bash
 cp server/.env.example server/.env
 cp client/.env.example client/.env
-# Edit server/.env — set MONGODB_URI and JWT_SECRET
+```
+
+At minimum, set these server values:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/codesteam
+JWT_SECRET=replace-with-a-long-random-secret
+CORS_ORIGINS=http://localhost:5173
 ```
 
 ### 3. Start development servers
+
 ```bash
 npm run dev
-# Frontend: http://localhost:5173
-# Backend:  http://localhost:5000
 ```
 
-### With Docker (no local MongoDB needed)
-```bash
-cd client && npm run build && cd ..
-docker-compose up -d
-# App available at http://localhost:80
+Frontend: `http://localhost:5173`
+
+Backend: `http://localhost:5000`
+
+---
+
+## Render + Vercel Deployment
+
+Use this split for hosted deployment:
+
+- Vercel serves the React frontend.
+- Render runs the backend as a Docker web service.
+- MongoDB should be hosted separately, for example MongoDB Atlas.
+
+The Render backend image installs all supported language runtimes. That means users can run Python, Java, C++, Rust, Go, and the other supported languages without those runtimes being installed on the host machine.
+
+For Render, use:
+
+```env
+CODE_RUNNER_MODE=local
+ALLOW_LOCAL_CODE_EXECUTION=true
+SANDBOX_RUN_AS_USER=sandbox:sandbox
 ```
+
+In this mode, "local" means inside the Render Docker container, not on your laptop. The container includes the runtimes and runs submitted code from a temp directory under a separate low-privilege user.
+
+Set these frontend env vars in Vercel:
+
+```env
+VITE_API_URL=https://your-render-service.onrender.com
+VITE_WS_URL=https://your-render-service.onrender.com
+```
+
+Set `CORS_ORIGINS` and `CLIENT_URL` on Render to your Vercel URL.
+
+This repo includes [render.yaml](render.yaml) for a Docker-based Render service. Fill all `sync: false` secrets in the Render Dashboard.
+
+---
+
+## Docker Compose
+
+For a self-hosted/VPS-style local run with Docker-per-execution isolation:
+
+```bash
+docker build -f Dockerfile.sandbox -t codesteam-sandbox:latest .
+docker compose --env-file .env.compose up -d --build
+```
+
+The app will be served through Nginx on:
+
+```text
+http://localhost
+```
+
+Keep `.env.compose` local. Do not commit real secrets.
+
+In Docker Compose mode, the code runner can use short-lived Docker containers. Each execution runs with network disabled, memory/CPU/PID limits, dropped Linux capabilities, a read-only root filesystem, and a temporary writable `/tmp`.
+
+If you run the app through Docker Compose, the server container needs access to the Docker socket so it can start those isolated execution containers. Treat Docker socket access as privileged infrastructure access and only expose the API behind authentication, rate limiting, and trusted deployment controls.
+
+On Linux, set `DOCKER_GID` in `.env.compose` to the group id of `/var/run/docker.sock` so the non-root server user can access Docker:
+
+```bash
+stat -c '%g' /var/run/docker.sock
+```
+
+---
+
+## Testing
+
+Build the frontend:
+
+```bash
+npm run build
+```
+
+Run server tests:
+
+```bash
+npm --prefix server test -- --runInBand
+```
+
+Some code-execution tests depend on Linux runtime commands such as `python3` and `bash`. For the most reliable results, run the full backend test suite in a Linux/Docker environment where the language runtimes are installed.
+
+Recommended next improvement: add GitHub Actions that runs build, unit tests, API tests, and Docker-based code-runner tests.
 
 ---
 
 ## Project Structure
 
-```
+```text
 codesteam/
-├── server/
-│   └── src/
-│       ├── index.js              # Entry point
-│       ├── app.js                # Express app + middleware
-│       ├── controllers/          # Route handlers
-│       │   ├── authController.js
-│       │   ├── roomController.js
-│       │   └── executeController.js
-│       ├── models/               # Mongoose schemas
-│       │   ├── Room.js
-│       │   └── User.js
-│       ├── routes/               # Express routers
-│       ├── socket/               # Socket.io server + OT sync
-│       │   └── index.js
-│       ├── sandbox/              # Code execution engine
-│       │   └── runner.js
-│       └── utils/
-│           ├── ot.js             # Operational Transform engine
-│           ├── auth.js           # JWT middleware
-│           ├── db.js             # MongoDB connection
-│           └── logger.js         # Winston logger
-├── client/
-│   └── src/
-│       ├── App.jsx
-│       ├── main.jsx
-│       ├── components/
-│       │   ├── Editor/
-│       │   │   └── CollabEditor.jsx   # Monaco + OT client
-│       │   ├── Room/
-│       │   │   ├── RoomPage.jsx
-│       │   │   ├── Toolbar.jsx
-│       │   │   ├── UserList.jsx
-│       │   │   └── OutputPanel.jsx
-│       │   └── UI/
-│       │       ├── HomePage.jsx
-│       │       └── NotFound.jsx
-│       ├── context/
-│       │   ├── SocketContext.jsx
-│       │   └── authStore.js       # Zustand auth store
-│       └── hooks/
-│           └── useOT.js           # Client-side OT state machine
-├── nginx/
-│   └── codesteam.conf            # Nginx reverse proxy config
-├── scripts/
-│   └── deploy.sh                  # Automated EC2 deployment
-├── ecosystem.config.js            # PM2 cluster config
-├── docker-compose.yml
-├── Dockerfile
-└── README.md
-```
-
----
-
-## AWS EC2 Deployment (Step by Step)
-
-### Step 1 — Launch EC2 Instance
-
-1. Go to AWS Console → EC2 → Launch Instance
-2. Choose **Ubuntu Server 22.04 LTS (64-bit)**
-3. Instance type: **t3.small** (2 vCPU, 2GB RAM) minimum; **t3.medium** recommended for 200 users
-4. Key pair: create or select an existing `.pem` key
-5. Security Group — allow these inbound rules:
-
-| Type | Protocol | Port | Source |
-|---|---|---|---|
-| SSH | TCP | 22 | Your IP |
-| HTTP | TCP | 80 | 0.0.0.0/0 |
-| HTTPS | TCP | 443 | 0.0.0.0/0 |
-
-6. Storage: 20GB gp3 minimum
-7. Launch the instance
-
-### Step 2 — SSH into instance
-```bash
-chmod 400 your-key.pem
-ssh -i your-key.pem ubuntu@YOUR_EC2_PUBLIC_IP
-```
-
-### Step 3 — Push code to GitHub
-```bash
-# On your local machine
-git init
-git add .
-git commit -m "initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/codesteam
-git push -u origin main
-```
-
-### Step 4 — Run deployment script
-```bash
-# On the EC2 instance
-# Edit the REPO_URL in scripts/deploy.sh first, then:
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/codesteam/main/scripts/deploy.sh | bash
-```
-
-Or manually:
-```bash
-bash scripts/deploy.sh
-```
-
-### Step 5 — Verify
-```bash
-pm2 status                     # Should show codesteam running
-pm2 logs codesteam            # Check for errors
-curl http://localhost/api/health  # Should return {"status":"ok"}
-```
-
-Visit `http://YOUR_EC2_PUBLIC_IP` — your app is live.
-
-### Step 6 — (Optional) Add SSL with Let's Encrypt
-```bash
-sudo apt install certbot python3-certbot-nginx -y
-sudo certbot --nginx -d yourdomain.com
-# Certbot will auto-edit the Nginx config and set up renewal
+|-- client/
+|   `-- src/
+|       |-- components/
+|       |   |-- Editor/
+|       |   |-- Room/
+|       |   `-- UI/
+|       |-- context/
+|       |-- hooks/
+|       `-- utils/
+|-- server/
+|   `-- src/
+|       |-- controllers/
+|       |-- models/
+|       |-- routes/
+|       |-- sandbox/
+|       |-- socket/
+|       |-- utils/
+|       `-- __tests__/
+|-- nginx/
+|-- scripts/
+|-- Dockerfile
+|-- docker-compose.yml
+`-- package.json
 ```
 
 ---
 
 ## Environment Variables
 
-### Server (`server/.env`)
+### Server
 
 | Variable | Description | Default |
 |---|---|---|
-| `PORT` | Server port | `5000` |
+| `PORT` | Backend port | `5000` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017/codesteam` |
-| `JWT_SECRET` | JWT signing secret (**change in production**) | — |
-| `JWT_EXPIRES_IN` | Token expiry | `7d` |
+| `JWT_SECRET` | JWT signing secret | Required |
+| `JWT_EXPIRES_IN` | Token lifetime | `7d` |
 | `CORS_ORIGINS` | Comma-separated allowed origins | `http://localhost:5173` |
+| `CLIENT_URL` | Public frontend URL for email links | Request host fallback |
+| `SMTP_HOST` | SMTP host for verification emails | Required for real email |
+| `SMTP_PORT` | SMTP port | `587` |
+| `SMTP_USER` | SMTP username | Required for real email |
+| `SMTP_PASS` | SMTP password | Required for real email |
+| `MAIL_FROM` | Sender email address | SMTP user fallback |
 | `SANDBOX_TIMEOUT_MS` | Code execution timeout | `10000` |
+| `CODE_RUNNER_MODE` | `local` for Render Docker image, `docker` for self-hosted Docker-per-run | `local` on Render |
+| `ALLOW_LOCAL_CODE_EXECUTION` | Required when using `CODE_RUNNER_MODE=local` in production | `false` |
+| `SANDBOX_RUN_AS_USER` | Linux user used for local execution inside the backend container | `sandbox:sandbox` on Render |
+| `SANDBOX_DOCKER_IMAGE` | Docker image used for code execution | `codesteam-sandbox:latest` |
+| `SANDBOX_DOCKER_MEMORY` | Per-execution memory limit | `256m` |
+| `SANDBOX_DOCKER_CPUS` | Per-execution CPU limit | `0.5` |
+| `SANDBOX_DOCKER_PIDS_LIMIT` | Per-execution process limit | `64` |
 
-### Client (`client/.env`)
+### Client
 
 | Variable | Description |
 |---|---|
-| `VITE_API_URL` | Backend API base URL (empty = same origin) |
-| `VITE_WS_URL` | WebSocket URL (empty = same origin) |
+| `VITE_API_URL` | Backend API base URL. Empty means same origin. |
+| `VITE_WS_URL` | WebSocket URL. Empty means same origin. |
 
 ---
 
-## API Reference
+## API Overview
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/api/auth/register` | Register user |
-| POST | `/api/auth/login` | Login |
-| GET | `/api/auth/me` | Get current user |
-| POST | `/api/rooms` | Create room |
-| GET | `/api/rooms` | List public rooms |
-| GET | `/api/rooms/:roomId` | Get room details |
-| DELETE | `/api/rooms/:roomId` | Delete room |
-| POST | `/api/execute` | Execute code |
-| GET | `/api/health` | Health check |
+| `POST` | `/api/auth/register` | Register a user |
+| `GET` | `/api/auth/verify-email` | Verify email token |
+| `POST` | `/api/auth/login` | Login |
+| `GET` | `/api/auth/me` | Current user |
+| `POST` | `/api/rooms` | Create a room |
+| `GET` | `/api/rooms/my` | List rooms for current user |
+| `GET` | `/api/rooms/:roomId` | Get room details/access status |
+| `POST` | `/api/rooms/:roomId/request` | Request room access |
+| `POST` | `/api/rooms/:roomId/requests/:userId/allow` | Approve join request |
+| `POST` | `/api/rooms/:roomId/requests/:userId/deny` | Deny join request |
+| `DELETE` | `/api/rooms/:roomId/joiners/:userId` | Remove a joiner |
+| `DELETE` | `/api/rooms/:roomId` | Delete a room |
+| `POST` | `/api/execute` | Execute code |
+| `GET` | `/api/health` | Health check |
+
+---
 
 ## Socket Events
 
 | Event | Direction | Description |
 |---|---|---|
-| `join-room` | Client → Server | Join a room |
-| `room-state` | Server → Client | Initial room content + users |
-| `op` | Bidirectional | OT operation (insert/delete) |
-| `op-ack` | Server → Client | Acknowledge op with server revision |
-| `cursor` | Bidirectional | Cursor position update |
-| `language-change` | Bidirectional | Change editor language |
-| `user-joined` | Server → Client | Another user joined |
-| `user-left` | Server → Client | User disconnected |
+| `join-room` | Client to Server | Join an approved room |
+| `room-state` | Server to Client | Initial room content and user state |
+| `op` | Both | Collaborative edit operation |
+| `op-ack` | Server to Client | Acknowledge operation revision |
+| `cursor` | Both | Cursor and selection updates |
+| `language-change` | Both | Change current room language |
+| `chat-history` | Client to Server | Fetch room chat history |
+| `chat-message` | Both | Send and receive chat messages |
+| `user-joined` | Server to Client | User joined notification |
+| `user-left` | Server to Client | User left notification |
+| `room-ended` | Server to Client | Room ended notification |
 
 ---
 
-## Performance Notes
+## Git Hygiene
 
-- PM2 cluster mode uses all available CPU cores
-- OT engine snapshots every 50 revisions and on last-user-leave
-- Rooms auto-expire from MongoDB after 7 days of inactivity
-- Code output capped at 100KB, execution timeout 10s
-- Nginx rate limits: 20 req/s on API, 5 req/s on WebSocket upgrades
+The repository intentionally ignores:
+
+- Local environment files and secrets
+- `node_modules`
+- Build output such as `dist`
+- Coverage reports
+- Logs and runtime temp files
+- Local Docker override files
+- Private keys and certificates
+
+Before pushing to GitHub, check:
+
+```bash
+git status --short
+```
+
+Only source code, docs, examples, config templates, and deployment definitions should be committed.
+
+---
+
+## Resume Summary
+
+Suggested resume bullet:
+
+```text
+Built CodeSteam, a real-time collaborative code editor using React, Monaco Editor, Node.js, Socket.IO, and MongoDB, with custom Operational Transform sync, JWT auth, approval-based room access, chat, bounded multi-language code execution, and Docker/Nginx deployment.
+```
+
+---
+
+## Roadmap
+
+- Add Socket.IO integration tests for room joining, edit broadcasting, chat, and end-room permissions
+- Add GitHub Actions CI
+- Run code execution in isolated worker containers for stronger sandboxing
+- Add benchmark scripts for collaborative editing load tests
+- Add a short demo GIF or screenshots to the README

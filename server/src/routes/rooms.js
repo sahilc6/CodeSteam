@@ -5,6 +5,7 @@ const {
   listRooms,
   getMyRooms,
   requestToJoin,
+  cancelJoinRequest,
   allowJoinRequest,
   denyJoinRequest,
   removeJoiner,
@@ -17,6 +18,7 @@ router.get('/', listRooms)
 router.get('/my', authMiddleware, getMyRooms)
 router.get('/:roomId', authMiddleware, getRoom)
 router.post('/:roomId/request', authMiddleware, requestToJoin)
+router.delete('/:roomId/request', authMiddleware, cancelJoinRequest)
 router.post('/:roomId/requests/:userId/allow', authMiddleware, allowJoinRequest)
 router.post('/:roomId/requests/:userId/deny', authMiddleware, denyJoinRequest)
 router.delete('/:roomId/joiners/:userId', authMiddleware, removeJoiner)

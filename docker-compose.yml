@@ -63,8 +63,16 @@ services:
       SMTP_PASS:         ${SMTP_PASS:?SMTP_PASS is required}
       MAIL_FROM:         ${MAIL_FROM:-}
       SANDBOX_TIMEOUT_MS: ${SANDBOX_TIMEOUT_MS:-10000}
+      CODE_RUNNER_MODE:  ${CODE_RUNNER_MODE:-docker}
+      SANDBOX_DOCKER_IMAGE: ${SANDBOX_DOCKER_IMAGE:-codesteam-sandbox:latest}
+      SANDBOX_DOCKER_MEMORY: ${SANDBOX_DOCKER_MEMORY:-256m}
+      SANDBOX_DOCKER_CPUS: ${SANDBOX_DOCKER_CPUS:-0.5}
+      SANDBOX_DOCKER_PIDS_LIMIT: ${SANDBOX_DOCKER_PIDS_LIMIT:-64}
     volumes:
       - server_logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - ${DOCKER_GID:-0}
     networks:
       - internal
       - external

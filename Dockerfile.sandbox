@@ -1,0 +1,21 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache \
+    bash \
+    python3 \
+    ruby \
+    php83 \
+    go \
+    gcc \
+    g++ \
+    make \
+    musl-dev \
+    rust \
+    openjdk17 \
+    coreutils \
+    && npm install -g typescript ts-node \
+    && addgroup -g 1000 -S sandbox \
+    && adduser -u 1000 -S sandbox -G sandbox
+
+USER sandbox
+WORKDIR /tmp

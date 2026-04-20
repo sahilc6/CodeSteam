@@ -6,27 +6,57 @@ node_modules/
 dist/
 build/
 client/dist/
+server/dist/
+.vite/
 
-# Environment files — NEVER commit these
+# Environment files - NEVER commit these
 .env
 .env.*
+!.env.example
+!**/.env.example
 !.env.*.example
 !.env.compose.example
+client/.env
+client/.env.local
+client/.env.*.local
 server/.env
+server/.env.local
+server/.env.*.local
 .env.compose
-.env.compose
+
+# Local secrets and generated config
+*.local
+*.secret
+secrets/
+config/local.*
+
 # Logs
 logs/
+**/logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Test coverage
 coverage/
+**/coverage/
 .nyc_output/
+*.lcov
+
+# Runtime/cache files
+.cache/
+.tmp/
+tmp/
+temp/
+*.pid
+*.seed
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Editor
 .vscode/
@@ -36,11 +66,14 @@ Thumbs.db
 
 # PM2
 .pm2/
+pm2.log
 
 # Docker
-.dockerignore
+docker-compose.override.yml
 
 # Certificates (managed by certbot on server)
 *.pem
 *.key
 *.crt
+*.csr
+*.p12

@@ -108,6 +108,7 @@ const roomSchema = new mongoose.Schema(
             "requested",
             "approved",
             "denied",
+            "cancelled",
             "removed",
           ],
         },
