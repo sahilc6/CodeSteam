@@ -19,7 +19,7 @@ RUN apk add --no-cache \
     ruby \
     php83 \
     bash \
-    openjdk17
+    openjdk17-jdk
 
 RUN addgroup -S sandbox \
     && adduser -S sandbox -G sandbox \

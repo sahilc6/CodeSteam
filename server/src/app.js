@@ -12,6 +12,10 @@ const executeRoutes = require("./routes/execute");
 
 const app = express();
 
+// Render and other reverse proxies send X-Forwarded-For. This keeps
+// express-rate-limit from treating proxy headers as a misconfiguration.
+app.set("trust proxy", 1);
+
 // Security headers
 app.use(helmet({ contentSecurityPolicy: false }));
 

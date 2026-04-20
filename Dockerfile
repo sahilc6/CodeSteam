@@ -37,7 +37,7 @@ RUN apk add --no-cache \
     php83 \
     bash \
     docker-cli \
-    openjdk17
+    openjdk17-jdk
 
 RUN addgroup -S appgroup \
     && adduser -S appuser -G appgroup \
