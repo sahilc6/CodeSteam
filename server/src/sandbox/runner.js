@@ -1,5 +1,6 @@
 // server/src/sandbox/runner.js
 const { spawn } = require("child_process");
+const fsSync = require("fs");
 const fs = require("fs/promises");
 const path = require("path");
 const os = require("os");
@@ -16,6 +17,12 @@ const DOCKER_MEMORY = process.env.SANDBOX_DOCKER_MEMORY || "256m";
 const DOCKER_CPUS = process.env.SANDBOX_DOCKER_CPUS || "0.5";
 const DOCKER_PIDS_LIMIT = process.env.SANDBOX_DOCKER_PIDS_LIMIT || "64";
 const LOCAL_RUN_AS_USER = process.env.SANDBOX_RUN_AS_USER || "";
+const PRIVILEGE_DROP_BIN =
+  process.env.SANDBOX_PRIVILEGE_DROP_BIN ||
+  ["/sbin/su-exec", "/usr/bin/su-exec", "/usr/local/bin/su-exec"].find((bin) =>
+    fsSync.existsSync(bin),
+  ) ||
+  "su-exec";
 
 const LANGUAGE_CONFIG = {
   javascript: {
@@ -242,7 +249,7 @@ function exec(cmd, args, stdin, cwd, options = {}) {
 
     const useLocalUser =
       LOCAL_RUN_AS_USER && process.platform !== "win32" && cmd !== "docker";
-    const spawnCmd = useLocalUser ? "su-exec" : cmd;
+    const spawnCmd = useLocalUser ? PRIVILEGE_DROP_BIN : cmd;
     const spawnArgs = useLocalUser ? [LOCAL_RUN_AS_USER, cmd, ...args] : args;
 
     const proc = spawn(spawnCmd, spawnArgs, {
@@ -299,9 +306,15 @@ function exec(cmd, args, stdin, cwd, options = {}) {
     proc.on("error", (err) => {
       clearTimeout(killTimer);
       logger.warn(`exec spawn error [${cmd}]: ${err.message}`);
+      const missingDropper =
+        useLocalUser && err.code === "ENOENT"
+          ? `Could not run code as '${LOCAL_RUN_AS_USER}' because '${spawnCmd}' is not installed. Make sure Render is using the Docker runtime and the latest Dockerfile was deployed.`
+          : null;
       resolve({
         stdout: "",
-        stderr: `Could not run '${cmd}': ${err.message}\nMake sure the runtime is installed on the server.`,
+        stderr:
+          missingDropper ||
+          `Could not run '${cmd}': ${err.message}\nMake sure the runtime is installed on the server.`,
         exitCode: -1,
         executionTime: Date.now() - startTime,
         timedOut: false,

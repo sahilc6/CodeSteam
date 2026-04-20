@@ -42,6 +42,7 @@ RUN apk add --no-cache \
     && addgroup -S sandbox \
     && adduser  -S sandbox -G sandbox \
     && npm install -g typescript ts-node \
+    && ln -sf /sbin/su-exec /usr/local/bin/su-exec \
     && if command -v php83 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; then ln -s /usr/bin/php83 /usr/bin/php; fi \
     # Clean apk cache
     && rm -rf /var/cache/apk/*
